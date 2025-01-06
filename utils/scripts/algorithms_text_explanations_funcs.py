@@ -210,7 +210,7 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
-def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False):
+def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plot=False, means=[]):
     """
     Reconstruct the embeddings using the principal components in data.
     Parameters:
@@ -218,6 +218,8 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False):
     - embeddings (list): List containing the embeddings to reconstruct.
     - types (list): List of types of embeddings to reconstruct.
     - return_princ_comp (bool): Return the principal components of the given embeddings
+    - plot (bool): Plot the reconstructed embeddings cosine similarity.
+    - means (list): List of mean values for the embeddings.
 
     Returns:
     - list: Reconstructed embeddings NOT mean centered.
@@ -226,11 +228,16 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False):
 
     if len(embeddings) == 0 or len(types) != len(embeddings):
         assert False, "No embeddings to reconstruct or different lengths."
+
     # Initialize the reconstructed embeddings
     reconstructed_embeddings = [torch.zeros_like(embeddings[i]) for i in range(len(embeddings))]
-    
+
+    # Store reconstruction values for plotting
+    rec_x = []
+    num_elements = []
+
     # Iterate over each principal component of interest
-    for component in data:
+    for count, component in enumerate(data):
         # Retrieve projection matrices and mean values
         project_matrix = torch.tensor(component["project_matrix"])
         vh = torch.tensor(component["vh"])
@@ -243,19 +250,39 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False):
 
             if types[i] == "text":
                 mask[:, princ_comp] = (embeddings[i] @ vh.T)[:, princ_comp].squeeze()
-                reconstructed_embeddings[i] += mask @ project_matrix @ vh 
-
+                reconstructed_embeddings[i] += mask @ project_matrix @ vh
             else:
                 mask[:, princ_comp] = (embeddings[i] @ vh.T)[:, princ_comp].squeeze()
                 reconstructed_embeddings[i] += mask @ project_matrix @ vh
 
+            if plot:
+                reconstructed_embeddings_norm = reconstructed_embeddings[i] / reconstructed_embeddings[i].norm(dim=-1, keepdim=True)
+                reconstructed_embeddings_norm += means[i]
+                reconstructed_embeddings_norm /= reconstructed_embeddings_norm.norm(dim=-1, keepdim=True)
+                
+                # Calculate and store the cosine reconstruction score
+                cosine_score = reconstructed_embeddings_norm @ (embeddings[i] + means[i]).T
+                rec_x.append(cosine_score.item())
+                num_elements.append(count)
+
             if return_princ_comp:
-                component["correlation_princ_comp_abs"] = torch.abs(mask[:, princ_comp]).item() 
+                component["correlation_princ_comp_abs"] = torch.abs(mask[:, princ_comp]).item()
                 component["correlation_princ_comp"] = mask[:, princ_comp].item()
+
+    # Plot the reconstruction values if requested
+    if plot:
+        plt.figure(figsize=(8, 6))
+        plt.plot(num_elements, rec_x, marker='o')
+        plt.ylabel("Reconstructed Cosine Similarity")
+        plt.xlabel("Number of Principal Components Used")
+        plt.title("Reconstruction Cosine Similarity vs. Number of Principal Components")
+        plt.grid(True)
+        plt.show()
 
     return reconstructed_embeddings, data
 
-def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90, classifier=None, top_indexes=None):
+
+def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90):
     """
     Reconstruct the embeddings using the principal components in data.
     Parameters:
@@ -269,6 +296,13 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
     Returns:
         - data: Data updated with top_k principal components of the given embeddings (if return_princ_comp is True).
     """
+
+    # Store reconstruction values for plotting
+    rec_x = []
+    num_elements = []
+    # Track Found heads and layers
+    track_h_l = {}
+    
     for count, entry in enumerate(data):
         if count == 0:
             # For the first principal component, initialize the query representation
@@ -278,7 +312,11 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
             # For subsequent components, accumulate their contributions
             [query_repres_tmp], _ = reconstruct_embeddings([data[count]], [embedding], [type], return_princ_comp=False)
             query_repres += query_repres_tmp
-
+        # Add count of layer and head
+        key = (data[count]["layer"], data[count]["head"])
+        val = track_h_l.get(key, 0)
+        track_h_l[key] = val
+        track_h_l[key] += 1
 
         # Compute the current score:
         query_repres_norm = query_repres / query_repres.norm(dim=-1, keepdim=True)
@@ -286,10 +324,10 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
         query_repres_norm /= query_repres_norm.norm(dim=-1, keepdim=True)
         embedding_dec = embedding + mean
         # Compute the current score: how well this partial reconstruction matches the original embedding
-        
         score = embedding_dec @ query_repres_norm.T
 
-
+        rec_x.append(score.item())
+        num_elements.append(count)
 
         # If we've reached the top_k limit or our reconstruction score is good enough 
         # (relative to max_reconstr_score and meeting the approx threshold), stop adding more components.
@@ -302,6 +340,7 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
     print(
         f"Reconstruction Quality Report:\n"
         f"- Maximum achievable reconstruction score: {max_reconstr_score.item():.4f}\n"
+        f"- Used a total number of {len(track_h_l)} different heads\n"
         f"- Current reconstruction score: {score.item():.4f}\n"
         f"  This corresponds to {percentage:.2f}% of the maximum possible score.\n"
     )
@@ -310,6 +349,15 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
         f"The reconstruction was performed using the top {top_k} principal component(s).\n "
         f"Increasing this number may improve the reconstruction score.\n\n"
     )
+
+    # Plot the reconstruction values if requested
+    plt.figure(figsize=(8, 6))
+    plt.plot(num_elements, rec_x, marker='o')
+    plt.ylabel("Reconstructed Cosine Similarity")
+    plt.xlabel("Number of Principal Components Used")
+    plt.title("Reconstruction Cosine Similarity vs. Number of Principal Components")
+    plt.grid(True)
+    plt.show()
 
     return data[:top_k]
 

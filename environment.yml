@@ -13,6 +13,7 @@ dependencies:
     - einops
     - ftfy
     - scipy
+    - tensorboard
     - imageio
     - h5py
     - scikit-image
