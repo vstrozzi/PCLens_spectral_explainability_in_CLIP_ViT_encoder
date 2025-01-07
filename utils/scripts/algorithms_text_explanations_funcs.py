@@ -242,6 +242,7 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plo
         project_matrix = torch.tensor(component["project_matrix"])
         vh = torch.tensor(component["vh"])
         princ_comp = component["princ_comp"]
+        s = component["strength_abs"]
 
         # Reconstruct Embeddings
         for i in range(len(embeddings)):
@@ -266,8 +267,8 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plo
                 num_elements.append(count)
 
             if return_princ_comp:
-                component["correlation_princ_comp_abs"] = torch.abs(mask[:, princ_comp]).item()
-                component["correlation_princ_comp"] = mask[:, princ_comp].item()
+                component["correlation_princ_comp_abs"] = s*torch.abs(mask[:, princ_comp]).item()
+                component["correlation_princ_comp"] = s*mask[:, princ_comp].item()
 
     # Plot the reconstruction values if requested
     if plot:
