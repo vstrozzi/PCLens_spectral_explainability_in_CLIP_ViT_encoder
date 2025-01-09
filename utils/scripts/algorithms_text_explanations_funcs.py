@@ -362,6 +362,106 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
 
     return data[:top_k]
 
+def reconstruct_top_embedding_residual(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90):
+    """
+    Reconstruct the embeddings using the principal components in data.
+    Parameters:
+        - data (list): List of dictionaries containing details for each principal component of interest.
+        - embedding: The embedding to reconstruct.
+        - type: Type of embedding to reconstruct.
+        - max_reconstr_score: Maximum achievable reconstruction score.
+        - top_k: Number of top principal components to consider.
+        - approx: Approximation threshold for the reconstruction score.
+
+    Returns:
+        - data: Data updated with top_k principal components of the given embeddings (if return_princ_comp is True).
+    """
+
+    # Store reconstruction values for plotting
+    rec_x = []
+    num_elements = []
+    # Track Found heads and layers
+    track_h_l = {}
+
+    score = 0
+    nr_pcs = 0
+    query_curr = torch.zeros_like(embedding) 
+    query_res = embedding
+    data_best = []
+    while nr_pcs != (top_k) and score / max_reconstr_score < approx:
+        score *= 0
+        max_score = torch.tensor(0)
+        max_index = 0
+        for count, entry in enumerate(data):
+            [query_repres], _ = reconstruct_embeddings([data[count]], [query_res], [type], return_princ_comp=False)
+
+            # Compute the current score:
+            query_repres += mean
+            embedding_dec = embedding + mean
+            # Compute the current score: how well this partial reconstruction matches the original embedding
+            score = embedding_dec @ query_repres.T
+            
+            if score.item() > max_score.item():
+                max_score = score
+                max_index = count
+                if len(data_best) == nr_pcs + 1:
+                    data_best[nr_pcs] = data[count]
+                else:
+                    data_best.append(data[count])
+
+        # Save best PCs
+        rec_x.append(max_score.item())
+        nr_pcs += 1
+        num_elements.append(nr_pcs)
+
+        # Compute current query
+        [query_repres], _ = reconstruct_embeddings([data[max_index]], [query_res], [type], return_princ_comp=False)
+
+        query_curr += query_repres
+        query_res -= query_repres
+
+        # Add count of layer and head
+        key = (data[max_index]["layer"], data[max_index]["head"])
+        val = track_h_l.get(key, 0)
+        track_h_l[key] = val
+        track_h_l[key] += 1
+
+        # Compute the current score:
+        query_repres_norm = query_curr / query_curr.norm(dim=-1, keepdim=True)
+        query_repres_norm += mean
+        query_repres_norm /= query_repres_norm.norm(dim=-1, keepdim=True)
+        embedding_dec = embedding + mean
+        # Compute the current score: how well this partial reconstruction matches the original embedding
+        score = embedding_dec @ query_repres_norm.T
+
+        print(score)
+    top_k = nr_pcs
+    # Print information about how well the reconstruction performed
+    percentage = (score / max_reconstr_score * 100).item()
+    print(
+        f"Reconstruction Quality Report:\n"
+        f"- Maximum achievable reconstruction score: {max_reconstr_score.item():.4f}\n"
+        f"- Used a total number of {len(track_h_l)} different heads\n"
+        f"- Current reconstruction score: {score.item():.4f}\n"
+        f"  This corresponds to {percentage:.2f}% of the maximum possible score.\n"
+    )
+
+    print(
+        f"The reconstruction was performed using the top {top_k} principal component(s).\n "
+        f"Increasing this number may improve the reconstruction score.\n\n"
+    )
+
+    # Plot the reconstruction values if requested
+    plt.figure(figsize=(8, 6))
+    plt.plot(num_elements, rec_x, marker='o')
+    plt.ylabel("Reconstructed Cosine Similarity")
+    plt.xlabel("Number of Principal Components Used")
+    plt.title("Reconstruction Cosine Similarity vs. Number of Principal Components")
+    plt.grid(True)
+    plt.show()
+
+    return data_best
+
 def image_grid(images, rows, cols, labels=None, scores=None, scores_vis=None, figsize=None):
     """
     Display a collection of images arranged in a grid with optional labels and scores.
