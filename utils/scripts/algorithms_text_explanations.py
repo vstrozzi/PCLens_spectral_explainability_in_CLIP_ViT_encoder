@@ -93,7 +93,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     project_matrix = text_features[indexes_reconstruct, :]
 
     # Least Square (data - A @ project_matrix) = 0 <-> A = data @ project_matrix.T @ (project_matrix @ project_matrix.T)^-1
-    coefficient = project_matrix.T @ np.linalg.pinv(project_matrix @ project_matrix.T) @ project_matrix
+    coefficient = project_matrix.T @ torch.linalg.pinv(project_matrix @ project_matrix.T) @ project_matrix
     
     # Reconstruct the original matrix
     reconstruct = data_orig @ vh.T @ coefficient @ vh
@@ -109,5 +109,5 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     }
 
 
-    return reconstruct + mean_values_att, json_object
+    return reconstruct.detach().cpu().numpy() + mean_values_att, json_object
 
