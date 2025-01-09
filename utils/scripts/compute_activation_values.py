@@ -130,8 +130,8 @@ def main(args):
         f"{args.dataset}_cls_attn_{args.model}_seed_{args.seed}.npy")
     final_labels_file = os.path.join(args.output_dir,
         f"{args.dataset}_labels_{args.model}_seed_{args.seed}.npy")
-   
-    """
+
+
     # Remove final files if they exist, just to be safe
     for ff in [final_attn_file, final_mlp_file, final_cls_attn_file, final_labels_file]:
         if os.path.exists(ff):
@@ -189,7 +189,7 @@ def main(args):
     # If there's anything left in memory after the loop, write one more chunk
     if len(attention_results) > 0:
         write_chunk_files(chunk_index)
-        chunk_index += 1 """
+        chunk_index += 1
 
     # AFTER THE LOOP: CONCATENATE CHUNK FILES
     print("\nConcatenating chunk files into final .npy arrays...")
