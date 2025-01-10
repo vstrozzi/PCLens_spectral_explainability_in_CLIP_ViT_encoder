@@ -50,7 +50,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     u = u[:, :rank]
 
     # Use lower rank version of the data matrix
-    data_orig = data
+    data_orig = data @ vh.T
     data = u @ torch.diag_embed(s)
     # Get the projection of text embeddings into head activations matrix space
     text_features_norm = (text_features.norm(dim=-1, keepdim=True))   
@@ -67,7 +67,9 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
 
     # Reconstruct
     results = []
+    # Use only top indexes for reconstructing matrix
     indexes_reconstruct = indexes_max[:, 0]
+
     cosine_similarity = simil_matrix[:, indexes_max[:, 0]].T
     for i, (idx_max, idx_min) in enumerate(zip(indexes_max, indexes_min)):
         text_pos = []
@@ -90,13 +92,15 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
 
     reconstruct = torch.zeros_like(data)
 
-    project_matrix = text_features[indexes_reconstruct, :]
 
+    project_matrix = text_features[indexes_reconstruct, :]
+    
     # Least Square (data - A @ project_matrix) = 0 <-> A = data @ project_matrix.T @ (project_matrix @ project_matrix.T)^-1
     coefficient = project_matrix.T @ torch.linalg.pinv(project_matrix @ project_matrix.T) @ project_matrix
     
-    # Reconstruct the original matrix
-    reconstruct = data_orig @ vh.T @ coefficient @ vh
+    # Reconstruct the original matrix (equivalent but faster compared to: data_orig @ project_matrix_pinv @ project_matrix)
+    # This project rows of data_original (i.e. activations embeddings) into the space span by the rows of project_matrix
+    reconstruct = (data_orig @ coefficient) @ vh
     
     # Json information on the procedure
     json_object = {
