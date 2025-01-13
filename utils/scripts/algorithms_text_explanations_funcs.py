@@ -251,18 +251,18 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plo
 
             if types[i] == "text":
                 mask[:, princ_comp] = (embeddings[i] @ vh.T)[:, princ_comp].squeeze()
-                reconstructed_embeddings[i] += mask @ project_matrix @ vh
+                embed_proj_back = mask @ project_matrix @ vh
+                reconstructed_embeddings[i] += embed_proj_back
             else:
                 mask[:, princ_comp] = (embeddings[i] @ vh.T)[:, princ_comp].squeeze()
-                reconstructed_embeddings[i] += mask @ project_matrix @ vh
+                embed_proj_back = mask @ project_matrix @ vh
+                reconstructed_embeddings[i] += embed_proj_back
 
             if plot:
                 reconstructed_embeddings_norm = reconstructed_embeddings[i] / reconstructed_embeddings[i].norm(dim=-1, keepdim=True)
-                reconstructed_embeddings_norm += means[i]
-                reconstructed_embeddings_norm /= reconstructed_embeddings_norm.norm(dim=-1, keepdim=True)
-                
+                embedding_norm = embeddings[i] / embeddings[i].norm(dim=-1, keepdim=True)
                 # Calculate and store the cosine reconstruction score
-                cosine_score = reconstructed_embeddings_norm @ (embeddings[i] + means[i]).T
+                cosine_score = reconstructed_embeddings_norm @ (embedding_norm).T
                 rec_x.append(cosine_score.item())
                 num_elements.append(count)
 
@@ -282,6 +282,25 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plo
 
     return reconstructed_embeddings, data
 
+def print_used_heads(data):
+    """
+    Print the used heads in the data.
+
+    Parameters:
+    - data (list): List of dictionaries containing details for each principal component of interest.
+
+    Returns:
+    - None
+    """
+    # Track Found heads and layers
+    track_h_l = {}
+    for entry in data:
+        key = (entry["layer"], entry["head"])
+        val = track_h_l.get(key, 0)
+        track_h_l[key] = val
+        track_h_l[key] += 1
+
+    print(f"Used a total number of {len(track_h_l)} different heads")
 
 def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90):
     """
@@ -320,12 +339,11 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
         track_h_l[key] += 1
 
         # Compute the current score:
-        query_repres_norm = query_repres / query_repres.norm(dim=-1, keepdim=True)
-        query_repres_norm += mean
-        query_repres_norm /= query_repres_norm.norm(dim=-1, keepdim=True)
-        embedding_dec = embedding + mean
+        query_repres_norm = query_repres/query_repres.norm(dim=-1, keepdim=True)
+        
+        embedding_norm = embedding/embedding.norm(dim=-1, keepdim=True)
         # Compute the current score: how well this partial reconstruction matches the original embedding
-        score = embedding_dec @ query_repres_norm.T
+        score = query_repres_norm @ embedding_norm.T
 
         rec_x.append(score.item())
         num_elements.append(count)
@@ -658,7 +676,7 @@ def visualize_dbs(data, dbs, ds_vis, texts_str, imagenet_classes, text_query= No
 def visualize_principal_component(
     layer, head, princ_comp, nr_top_imgs, nr_worst_imgs, nr_cont_imgs,
     attention_dataset, final_embeddings_images, final_embeddings_texts, 
-    seed, imagenet_path, texts_str, imagenet_classes, 
+    seed, imagenet_path, texts_str, imagenet_classes, samples_per_class=3,
     transform=visualization_preprocess
 ):
     """
@@ -691,7 +709,7 @@ def visualize_principal_component(
 
     # Load a subset of the ImageNet dataset
     ds_vis = create_dataset_imagenet(
-        imagenet_path, transform, samples_per_class=3, 
+        imagenet_path, transform, samples_per_class=samples_per_class, 
         tot_samples_per_class=50, seed=seed
     )
 
