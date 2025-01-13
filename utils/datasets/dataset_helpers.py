@@ -3,9 +3,9 @@ import random
 from torch.utils.data import DataLoader
 def dataset_to_dataloader(dataset, samples_per_class = 5, tot_samples_per_class=50, batch_size=8, shuffle=False, num_workers=8, seed=42):    
     if samples_per_class is None:
+        print("Full dataset")
         dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
-    )
+        dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)        
     else:
         # Take a subset
         random.seed(seed)
