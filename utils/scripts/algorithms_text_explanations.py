@@ -37,7 +37,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     text_features = torch.from_numpy(text_features - mean_values_text).float().to(device)
    
     # Perform SVD of data matrix
-    u, s, vh = torch.linalg.svd(data, full_matrices=True)
+    u, s, vh = torch.linalg.svd(data, full_matrices=False)
     # Total sum of singular values
     total_variance = torch.sum(s)
     # Cumulative sum of singular values
@@ -89,7 +89,6 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
         results.append({"text": text, "eigen_v_emb": vh[i].tolist(), "strength_abs": s[i].item(), \
                         "strength_rel": (100 * s[i] / tot_str).item(), "cosine_similarity": cosine_similarity[i, i].item(),
                         "correlation": (text_features[indexes_max[:, 0], :])[i, i].item()})   # Reconstruct original matrix with new basis
-
     reconstruct = torch.zeros_like(data)
 
 

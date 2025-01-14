@@ -40,7 +40,7 @@ def text_span(data, text_features, texts, layer, head, text_per_princ_comp, devi
     text_features = (vh.T @ vh @ text_features.T).T
 
     data = torch.from_numpy(data).float().to(device)
-    reconstruct = np.zeros_like(data)
+    reconstruct = torch.zeros_like(data)
     text_features = torch.from_numpy(text_features).float().to(device)
 
     # Reconstruct attention head matrix by using projection on nr. iters max variance texts embeddings
@@ -49,16 +49,16 @@ def text_span(data, text_features, texts, layer, head, text_per_princ_comp, devi
         # Each row in projection now represents how each attention head activation vector i aligns with each text embedding j (i, j),
         # quantifying the contribution of each text_feature to the data in this iteration.
         projection = data @ text_features.T # Nxd * dxM, cos similarity on each row
-        projection_std = projection.std(axis=0).detach().cpu().numpy() 
+        projection_std = projection.std(axis=0)
         # Take top text embedding with max variance for the data matrix
-        top_n = np.argmax(projection_std)
+        top_n = torch.argmax(projection_std)
         results.append(texts[top_n])
         
         # Rank 1 approximation 
         text_norm = text_features[top_n] @ text_features[top_n].T
         rank_1_approx = (data @ text_features[top_n] / text_norm)[:, np.newaxis]\
                         * text_features[top_n][np.newaxis, :]
-        reconstruct += rank_1_approx.detach().cpu().numpy()
+        reconstruct += rank_1_approx
         # Remove contribution from data matrix
         data = data - rank_1_approx
         # Remove contribution of text_feature from text embeddings
@@ -77,7 +77,7 @@ def text_span(data, text_features, texts, layer, head, text_per_princ_comp, devi
         "project_matrix": vh.tolist(),
         "embeddings_sort": results
     }
-    return reconstruct + mean_values_att, json_object
+    return reconstruct.detach().cpu().numpy() + mean_values_att, json_object
 
 
 def svd_parameters_init(vh, s, text_features, rank):

@@ -48,7 +48,6 @@ def main(args):
     and saves them in separate chunk files. After finishing, it concatenates all chunks 
     into single .npy files (one per data type), and deletes the chunk files.
     """
-    
     # Build & move model:
     model, _, preprocess = create_model_and_transforms(
         args.model, pretrained=args.pretrained, cache_dir=args.cache_dir
@@ -159,7 +158,7 @@ def main(args):
         mlp_results.clear()
         cls_to_cls_results.clear()
         labels_results.clear()
-
+        
     for i, (image, labels) in enumerate(tqdm.tqdm(dataloader)):
         batch_size_here = image.shape[0]
         total_samples_seen += batch_size_here
