@@ -120,7 +120,7 @@ def print_data_text_span(data, top_k=None):
         print(tabulate(output_df, headers='keys', tablefmt='psql'))
 
 def visualize_text_span(layer, head, data, top_k=-1):    # Retrieve and filter the principal component data
-    data = get_data_text_span(attention_dataset)
+    data = get_data_text_span(data)
     data = get_data_head(data, layer, head)
     print_data_text_span(data, top_k=top_k)
 
@@ -387,7 +387,10 @@ def print_used_heads(data):
 
     print(f"Used a total number of {len(track_h_l)} different heads")
 
-def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90):
+
+    return data
+
+def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90, plot=True):
     """
     Reconstruct the embeddings using the principal components in data.
     Parameters:
@@ -424,12 +427,21 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
         track_h_l[key] += 1
 
         # Compute the current score:
+
         query_repres_norm = query_repres/query_repres.norm(dim=-1, keepdim=True)
         
         embedding_norm = embedding/embedding.norm(dim=-1, keepdim=True)
+        """ # Compute the current score: how well this partial reconstruction matches the original embedding
+        score = query_repres_norm @ embedding_norm.T
+        query_repres_norm = query_repres/query_repres.norm(dim=-1, keepdim=True)
+        query_repres_norm += mean 
+        query_repres_norm /= query_repres_norm.norm(dim=-1, keepdim=True)
+        embedding_norm = embedding/embedding.norm(dim=-1, keepdim=True) """
         # Compute the current score: how well this partial reconstruction matches the original embedding
         score = query_repres_norm @ embedding_norm.T
+        #score = query_repres_norm @ (embedding + mean).T
 
+        
         rec_x.append(score.item())
         num_elements.append(count)
 
@@ -454,14 +466,15 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
         f"Increasing this number may improve the reconstruction score.\n\n"
     )
 
-    # Plot the reconstruction values if requested
-    plt.figure(figsize=(8, 6))
-    plt.plot(num_elements, rec_x, marker='o')
-    plt.ylabel("Reconstructed Cosine Similarity")
-    plt.xlabel("Number of Principal Components Used")
-    plt.title("Reconstruction Cosine Similarity vs. Number of Principal Components")
-    plt.grid(True)
-    plt.show()
+    if plot:
+        # Plot the reconstruction values if requested
+        plt.figure(figsize=(8, 6))
+        plt.plot(num_elements, rec_x, marker='o')
+        plt.ylabel("Reconstructed Cosine Similarity")
+        plt.xlabel("Number of Principal Components Used")
+        plt.title("Reconstruction Cosine Similarity vs. Number of Principal Components")
+        plt.grid(True)
+        plt.show()
 
     return data[:top_k]
 
@@ -840,6 +853,70 @@ def visualize_principal_component(
         scores_array_images, scores_array_texts, nr_top_imgs, 
         nr_worst_imgs, nr_cont_imgs, text_query=None, max_reconstr_score=-1
     )
-
+    
+    # Hardcoded visualizations
+    nrs_dbs = [nr_top_imgs, nr_worst_imgs, nr_cont_imgs]
+    dbs_new = []
+    for i, db in enumerate(dbs):
+        if nrs_dbs[i] == 0:
+            continue
+        dbs_new.append(db)
+        
     # Visualize the results
-    visualize_dbs(data, dbs, ds_vis, texts_str, imagenet_classes, text_query=None)
+    visualize_dbs(data, dbs_new, ds_vis, texts_str, imagenet_classes, text_query=None)
+
+
+@torch.no_grad()
+def reconstruct_embeddings_proj(data, embeddings, types, return_princ_comp=False, plot=False, means=[]):
+    """
+    Reconstruct the embeddings using the principal components in data.
+    Parameters:
+    - data (list): List of dictionaries containing details for each principal component of interest.
+    - embeddings (list): List containing the embeddings to reconstruct.
+    - types (list): List of types of embeddings to reconstruct.
+    - return_princ_comp (bool): Return the principal components of the given embeddings
+    - plot (bool): Plot the reconstructed embeddings cosine similarity.
+    - means (list): List of mean values for the embeddings.
+
+    Returns:
+    - list: Reconstructed embeddings NOT mean centered.
+    - data: Data updated with principal components of the given embeddings (if return_princ_comp is True).
+    """
+
+    if len(embeddings) == 0 or len(types) != len(embeddings):
+        assert False, "No embeddings to reconstruct or different lengths."
+
+    # Initialize the reconstructed embeddings
+    reconstructed_embeddings = [torch.zeros_like(embeddings[i]) for i in range(len(embeddings))]
+
+    # Iterate over each principal component of interest
+    all_pcs = torch.zeros((len(data), torch.tensor(data[0]["vh"]).shape[1]))
+    #activationsdada
+    for count, component in enumerate(data):
+        # Retrieve projection matrices and mean values
+        project_matrix = torch.tensor(component["project_matrix"])
+        vh = torch.tensor(component["vh"])
+        princ_comp = component["princ_comp"]
+        s = component["strength_abs"]
+        # Recover princ comp
+        all_pcs[count] = vh[princ_comp, :]
+
+    # Project in row space
+    # Reconstruct Embeddings
+
+    # Perform SVD of data matrix
+    u, s, vh = torch.linalg.svd(all_pcs, full_matrices=False)
+    # Total sum of singular values
+    total_variance = torch.sum(s)
+    # Cumulative sum of singular values
+    cumulative_variance = torch.cumsum(s, dim=0)
+    # Determine the rank where cumulative variance exceeds the threshold of total variance
+    threshold = 0.99 # How much variance should cover the top princ_comps of the matrix 
+    rank = torch.sum(cumulative_variance / total_variance < threshold).item() + 1
+    print(f"The rank of the matrix is {rank}")
+    for i in range(len(embeddings)):
+        # Derive masking
+        reconstructed_embeddings[i] = embeddings[i] @ all_pcs.T @ torch.linalg.pinv(all_pcs @ all_pcs.T) @ all_pcs
+
+
+    return reconstructed_embeddings, data
