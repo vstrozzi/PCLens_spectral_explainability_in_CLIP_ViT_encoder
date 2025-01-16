@@ -87,6 +87,91 @@ def get_data_component(data, layer, head, princ_comp):
         if entry["layer"] == layer and entry["head"] == head and entry["princ_comp"] == princ_comp:
             return [entry]
 
+
+def print_data_text_span(data, top_k=None):
+    """
+    Print the collected data in a formatted table.
+    Args:
+    - data (list): A list of dictionaries containing details for each principal component of interest. (i.e. layout as PrincipalComponentRecord)
+    Returns:
+    - None
+    """
+    # Convert the collected data into a Pandas DataFrame for easier manipulation and printing
+    top_k_df = pd.DataFrame(data)
+
+    # Iterate over each row in the DataFrame to display details about the principal components and their associated texts
+    for row in top_k_df.itertuples():
+        output_rows = []
+        texts = row.texts
+        
+        if top_k != None:
+            output_rows = texts[:top_k]
+        else:
+            output_rows = texts
+
+        # Print summary information about the current principal component:
+        # Including layer, head, principal component index, absolute variance, relative variance, and head rank.
+        print(f"Layer {row.layer}, Head {row.head}")
+        # Set the column headers based on whether the first half was considered positive
+        columns = ["text"]
+
+        # Create a DataFrame from the collected rows of positive/negative texts and print it in a formatted table
+        output_df = pd.DataFrame(output_rows, columns=columns)
+        print(tabulate(output_df, headers='keys', tablefmt='psql'))
+
+def visualize_text_span(layer, head, data, top_k=-1):    # Retrieve and filter the principal component data
+    data = get_data_text_span(attention_dataset)
+    data = get_data_head(data, layer, head)
+    print_data_text_span(data, top_k=top_k)
+
+
+def get_data_text_span(attention_dataset):
+    """
+    Retrieve data from a JSON file containing attention data.
+    Args:
+    - attention_dataset (str): The path to the JSON file containing attention data.
+    - min_princ_comp (int): The minimum principal component number to consider for each head (-1=all).
+
+    Returns:
+    - A list of dictionaries containing details for each principal component of interest.
+    """
+    with open(attention_dataset, "r") as json_file:
+        data = []
+        for line in json_file:
+            entry = json.loads(line)  # Parse each line as a JSON object, producing a dictionary-like structure
+
+
+            # Each entry includes a sorted list of principal components. 
+            # We want to record information up to a certain minimum principal component index (min_princ_comp).
+
+               
+            # Append a dictionary of details for each principal component of interest
+            data.append({
+                "layer": entry["layer"],
+                "head": entry["head"],
+                "texts": entry["embeddings_sort"]
+            })
+    
+    return data
+
+def get_data_head(data, layer, head):
+    """
+    Retrieve data from a JSON file containing attention data.
+    Args:
+    - data (list): A list of dictionaries containing details for each principal component of interest. (i.e. layout as PrincipalComponentRecord)
+    - layer (int): The layer number of the principal component.
+    - head (int): The head number of the principal component.
+    - princ_comp (int): The principal component number of interest.
+
+    Returns:
+    - A list of dictionaries containing detail for the principal component of interest.
+    """
+    for entry in data:
+        if entry["layer"] == layer and entry["head"] == head:
+            return [entry]
+    return []
+
+
 @torch.no_grad()
 def print_data(data, min_princ_comp=-1, is_corr_present=False):
     """
@@ -551,7 +636,9 @@ def create_dataset_imagenet(imagenet_path, transform, samples_per_class=3, tot_s
     index = [x for xs in index for x in xs]
 
     # Create subsets of the dataset and visualization dataset using the selected indices
-    ds_vis = torch.utils.data.Subset(ds_vis, index)
+    if samples_per_class != tot_samples_per_class:
+        print("Using subset of imagenet")
+        ds_vis = torch.utils.data.Subset(ds_vis, index)
     return ds_vis
 
 
