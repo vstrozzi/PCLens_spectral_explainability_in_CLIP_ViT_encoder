@@ -154,6 +154,50 @@ def get_data_text_span(attention_dataset):
     
     return data
 
+def get_data_head_svs(data, layer, head):
+    """
+    Retrieve data from a JSON file containing attention data.
+    Args:
+    - data (list): A list of dictionaries containing details for each principal component of interest. (i.e. layout as PrincipalComponentRecord)
+    - layer (int): The layer number of the principal component.
+    - head (int): The head number of the principal component.
+    - princ_comp (int): The principal component number of interest.
+
+    Returns:
+    - A list of svs
+    """
+    svs = []
+    for entry in data:
+        if entry["layer"] == layer and entry["head"] == head:
+           svs.append(entry["strength_rel"]) 
+    return svs
+
+def plot_pc_sv(data, layer, head):
+    """
+    Plot the singular values of the principal components for a given layer and head.
+
+    Args:
+    - data (list): List of dictionaries containing details for each principal component of interest.
+    - layer (int): The layer number of the principal component.
+    - head (int): The head number of the principal component.
+
+    Returns:
+    - None
+    """
+    # Retrieve and filter the principal component data
+    svs = get_data_head_svs(data, layer, head)
+    svs = np.cumsum(svs)
+    # Plot the singular values of the principal components on the y axis
+    plt.figure(figsize=(10, 6))
+    plt.plot(svs, marker='o')
+    plt.xlabel('Principal Component Index')
+    plt.ylabel('Cumulative Singular Value')
+    plt.title(f'Cumulative Singular Values for Layer {layer}, Head {head}')
+    plt.grid(True)
+    plt.show()
+
+
+
 def get_data_head(data, layer, head):
     """
     Retrieve data from a JSON file containing attention data.
@@ -389,6 +433,25 @@ def print_used_heads(data):
 
 
     return data
+
+def get_remaining_pcs(data, top_k_details):
+    # Get the remaining principal components (very simple and unoptimized)
+    remaining_pcs = []
+    for entry_data in data:
+        found = False
+        for entry in top_k_details:
+            layer = entry["layer"]
+            head = entry["head"]
+            pc = entry["princ_comp"]
+
+            if entry_data["layer"] == layer and entry_data["head"] == head and entry_data["princ_comp"] == pc:
+                found = True
+                break
+        if not found:
+            remaining_pcs.append(entry_data)
+
+    return remaining_pcs
+
 
 def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90, plot=True):
     """
@@ -806,7 +869,7 @@ def visualize_principal_component(
     # Retrieve and filter the principal component data
     data = get_data(attention_dataset, -1, skip_final=True)
     data = get_data_component(data, layer, head, princ_comp)
-
+    
     # Load a subset of the ImageNet dataset
     ds_vis = create_dataset_imagenet(
         imagenet_path, transform, samples_per_class=samples_per_class, 
@@ -920,3 +983,4 @@ def reconstruct_embeddings_proj(data, embeddings, types, return_princ_comp=False
 
 
     return reconstructed_embeddings, data
+
