@@ -7,8 +7,11 @@ import torch
 import numpy as np
 from torchvision.datasets import ImageNet
 import random
+from collections import defaultdict
 import matplotlib.pyplot as plt
 from utils.misc.visualization import visualization_preprocess
+from utils.misc.misc import accuracy_correct
+from utils.datasets_constants.imagenet_classes import imagenet_classes
 
 ### Layout of data
 @dataclass
@@ -983,4 +986,87 @@ def reconstruct_embeddings_proj(data, embeddings, types, return_princ_comp=False
 
 
     return reconstructed_embeddings, data
+
+
+
+def test_accuracy(prediction, labels, label="Classifier"):
+    """
+    Calculate the accuracy of the model's predictions.
+    """
+    accuracy, indexes = accuracy_correct(prediction, labels)
+    accuracy_pred = accuracy[0] * 100
+    print(f"For the approach {label}, the accuracy is: {accuracy_pred:3f}%")
+    return accuracy_pred, indexes[0]
+
+def print_wrong_elements_label(indexes_1, label, subset_dim, text="wrong"):
+    # TODO: Hardcoded for ImageNet
+    # Retrieve the labels of the dataset. 
+    # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
+    nr_samples = torch.arange(1000)    
+    idx_label = [idx for idx, x in enumerate(imagenet_classes) if x == label][0]
+    count = 0
+    for idx in range(idx_label*subset_dim, idx_label*subset_dim + subset_dim):
+        if not indexes_1[idx]:
+            count += 1
+        
+    # Print the result
+    print(f"The {label} wrong elements labels are: {count}")
+
+    return count
+
+def print_diff_elements(indexes_1, indexes_2, subset_dim):
+    # TODO: Hardcoded for ImageNet
+    # Retrieve the labels of the dataset. 
+    # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
+    nr_samples = torch.arange(1000)
+    classes_indexes = nr_samples.repeat_interleave(subset_dim)
+    class_labels = np.array([imagenet_classes[i] for i in classes_indexes])
+    # Determine which elements differ between the two reconstructions
+    wrong_elements = np.array(~(indexes_1 == indexes_2))
+    
+    print(f"Number of elements with different results between the two reconstruction methods: {len(class_labels[wrong_elements])}")
+    # Track occurrences
+    label_count = defaultdict(int)
+    output_set = set()
+
+    # Iterate through mask and labels
+    for idx, is_wrong in enumerate(wrong_elements):
+        if is_wrong:
+            label = class_labels[idx]
+            label_count[label] += 1
+
+    # Sort the set by nr_of_prev_occurrences in descending order
+    sorted_output = sorted(label_count.items(), key=lambda x: x[1], reverse=True)
+
+    # Print the result
+    print(f"The different elements labels are: {sorted_output}")
+
+def print_wrong_elements(indexes_1, subset_dim, text="wrong"):
+    # TODO: Hardcoded for ImageNet
+    # Retrieve the labels of the dataset. 
+    # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
+    nr_samples = torch.arange(1000)
+    classes_indexes = nr_samples.repeat_interleave(subset_dim)
+    class_labels = np.array([imagenet_classes[i] for i in classes_indexes])
+    
+    print(f"Number of elements with {text} results between the two reconstruction methods: {len(class_labels[indexes_1])}")
+    # Track occurrences
+    label_count = defaultdict(int)
+
+    # Iterate through mask and labels
+    for idx, is_correct in enumerate(indexes_1):
+        if not is_correct:
+            label = class_labels[idx]
+            label_count[label] += 1
+
+    # Sort the set by nr_of_prev_occurrences in descending order
+    sorted_output = sorted(label_count.items(), key=lambda x: x[1], reverse=True)
+
+    # Print the result
+    print(f"The {text} elements labels are: {sorted_output}")
+    return sorted_output
+
+
+def print_correct_elements(indexes_1, text="correct"):
+    return print_wrong_elements(~indexes_1, text)
 

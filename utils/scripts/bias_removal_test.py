@@ -1,0 +1,233 @@
+import numpy as np
+import os.path
+import argparse
+import json
+from pathlib import Path
+from utils.datasets_constants.imagenet_classes import imagenet_classes
+from utils.scripts.algorithms_text_explanations_funcs import *
+from utils.misc.misc import accuracy
+from utils.models.factory import create_model_and_transforms, get_tokenizer
+from utils.models.prs_hook import hook_prs_logger
+from PIL import Image
+import torch  # Make sure you import torch if it's needed
+
+
+def get_args_parser():
+    parser = argparse.ArgumentParser("Ablations part", add_help=False)
+
+    # Model parameters
+    parser.add_argument(
+        "--model",
+        default="ViT-B-32",
+        type=str,
+        metavar="MODEL",
+        help="Name of model to use",
+    )
+    parser.add_argument('--pretrained', default='laion2b_s32b_b79k', type=str)
+
+    parser.add_argument(
+        "--output_dir", default="./output_dir", help="path where data is saved"
+    )
+    parser.add_argument("--seed", default=0, type=int)
+
+    parser.add_argument("--subset_dim", default=0, type=int)
+
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="imagenet",
+        help="imagenet, waterbirds, cub, binary_waterbirds",
+    )
+
+    parser.add_argument(
+        "--dataset_text",
+        type=str,
+        default="top_1500_nouns_5_sentences_imagenet_clean",
+        help="text dataset used for the explanations",
+    )
+
+    parser.add_argument("--top_k", type=int, default=30, help="Nr of PCs of the query system")
+    parser.add_argument("--max_approx", type=float, default=1, help="Max approx for the reconstruction")
+
+    return parser
+
+
+def main(args):
+    """
+    Need to run compute_prs.py for the given model before running this script.
+    Compute the final embedding of the given model.
+    """
+
+    subset_dim = args.subset_dim
+    model_name = args.model
+    pretrained = args.pretrained
+    device = args.device
+    attention_dataset = os.path.join(
+        args.output_dir, 
+        f"{args.dataset}_completeness_{args.dataset_text}_{model_name}_algo_svd_data_approx_seed_{args.seed}.jsonl"
+    )
+
+    # Load data/embeddings
+    final_embeddings_images = torch.tensor(
+        np.load(os.path.join(args.output_dir, f"{args.dataset}_embeddings_{args.model}_seed_{args.seed}.npy"), mmap_mode="r")
+    )  # shape: [b, d] or [b, l, h, d] depending on your saving format
+    final_embeddings_texts = torch.tensor(
+        np.load(os.path.join(args.output_dir, f"{args.dataset_text}_{model_name}.npy"), mmap_mode="r")
+    )
+    classifier_ = torch.tensor(
+        np.load(os.path.join(args.output_dir, f"{args.dataset}_classifier_{model_name}.npy"), mmap_mode="r")
+    )
+    labels_ = torch.tensor(
+        np.load(os.path.join(args.output_dir, f"{args.dataset}_labels_{model_name}_seed_{args.seed}.npy"), mmap_mode="r")
+    )
+
+    ## Loading Model
+    model, _, preprocess = create_model_and_transforms(model_name, pretrained=pretrained)
+    model.to(device)
+    model.eval()
+    context_length = model.context_length
+    vocab_size = model.vocab_size
+    tokenizer = get_tokenizer(model_name)
+
+    prs = hook_prs_logger(model, device, spatial=False)
+    print("Model parameters:", f"{np.sum([int(np.prod(p.shape)) for p in model.parameters()]):,}")
+    print("Context length:", context_length)
+    print("Vocab size:", vocab_size)
+    print("Len of res:", len(model.visual.transformer.resblocks))
+
+    # Prepare to store results
+    acc_baseline_list = []
+    count_baseline_list = []
+    acc_rec_list = []
+    count_rec_list = []
+    acc_bias_rem_list = []
+    count_bias_rem_list = []
+
+    query_text = True
+    top_k = args.top_k
+    approx = args.max_approx
+
+    # Precompute means
+    mean_final_images = torch.mean(final_embeddings_images, axis=0)
+    mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
+
+    for label in imagenet_classes:
+        # Retrieve an embedding
+        with torch.no_grad():
+            if query_text:
+                text_query = label
+                text_query_token = tokenizer(text_query).to(device)
+                topic_emb = model.encode_text(text_query_token, normalize=True)
+            else:
+                # Example for image query
+                prs.reinit()
+                text_query = "woman.png"
+                image_pil = Image.open(f'images/{text_query}')
+                image = preprocess(image_pil)[np.newaxis, :, :, :]
+                topic_emb = model.encode_image(
+                    image.to(device),
+                    attn_method='head_no_spatial',
+                    normalize=True
+                )
+
+        # Mean center the embeddings
+        mean_final = mean_final_texts if query_text else mean_final_images
+        topic_emb_cent = topic_emb - mean_final
+
+        # Retrieve partial SVD/projection data
+        data = get_data(attention_dataset, -1, skip_final=True)
+
+        # Reconstruct embedding of the query
+        _, data = reconstruct_embeddings(
+            data, 
+            [topic_emb_cent], 
+            ["text" if query_text else "image"], 
+            return_princ_comp=True, 
+            plot=False, 
+            means=[mean_final]
+        )
+
+        # Sort the principal components by absolute correlation
+        data = sort_data_by(data, "correlation_princ_comp_abs", descending=True)
+        top_k_entries = top_data(data, top_k)
+
+        # Reconstruct embeddings for all images using those top-k PCs
+        image_emb_cent_embed = final_embeddings_images - mean_final_images
+        data = get_data(attention_dataset, -1, skip_final=True)
+        [rec], _ = reconstruct_embeddings_proj(top_k_entries, [image_emb_cent_embed], ["image"])
+
+        rec_proof = image_emb_cent_embed - rec
+        # Normalize
+        rec_proof /= rec_proof.norm(dim=-1, keepdim=True)
+        rec /= rec.norm(dim=-1, keepdim=True)
+
+        # Add mean back
+        rec += mean_final_images
+        rec_proof += mean_final_images
+
+        # -------------------------
+        #  1) Baseline Accuracy
+        # -------------------------
+        baseline = final_embeddings_images
+        acc_base, indexes_approx_bas = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
+        count_base = print_wrong_elements_label(indexes_approx_bas, label, subset_dim)
+        acc_baseline_list.append(float(acc_base))
+        count_baseline_list.append(int(count_base))
+
+        # -------------------------
+        #  2) Reconstruction Accuracy
+        # -------------------------
+        acc_r, indexes_approx_rec = test_accuracy(rec @ classifier_, labels_, label="Approximation with the reconstructed embeddings")
+        count_r = print_wrong_elements_label(indexes_approx_rec, label, subset_dim)
+        acc_rec_list.append(float(acc_r))
+        count_rec_list.append(int(count_r))
+
+        # -------------------------
+        #  3) "Bias Removal"/Final Accuracy
+        # -------------------------
+        acc_final, indexes_approx_final = test_accuracy(
+            rec_proof @ classifier_, 
+            labels_, 
+            label="Approximation with proof of concept"
+        )
+        count_final = print_wrong_elements_label(indexes_approx_final, label, subset_dim)
+        acc_bias_rem_list.append(float(acc_final))
+        count_bias_rem_list.append(int(count_final))
+
+        print()  # spacing
+
+        if label=="tiger shark":
+            break
+
+    # Once the loop over classes is done, prepare the result structure
+    results = {
+        "acc_baseline": acc_baseline_list,
+        "count_baseline": count_baseline_list,
+        "acc_rec": acc_rec_list,
+        "count_rec": count_rec_list,
+        "acc_bias_rem": acc_bias_rem_list,
+        "count_bias_rem": count_bias_rem_list,
+        "top_k": args.top_k,
+        "subset_dim": args.subset_dim,
+        "seed": args.seed,
+        "approx": args.max_approx
+    }
+
+    # Write out to a .jsonl file with a meaningful name
+    out_filename = (
+        f"{args.dataset}_bias_test_{args.dataset_text}_{args.model}_algo_svd_data_approx_seed_{args.seed}.jsonl"
+    )
+    out_path = os.path.join(args.output_dir, out_filename)
+
+    # Write the results as a single JSON object in one line
+    with open(out_path, "w") as f:
+        f.write(json.dumps(results) + "\n")
+
+    print(f"Results saved to {out_path}")
+
+
+if __name__ == "__main__":
+    args = get_args_parser()
+    args = args.parse_args()
+    main(args)
