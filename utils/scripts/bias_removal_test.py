@@ -32,6 +32,7 @@ def get_args_parser():
 
     parser.add_argument("--subset_dim", default=0, type=int)
 
+    parser.add_argument("--cache_dir", default=None)
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
         "--dataset",
@@ -83,7 +84,10 @@ def main(args):
     )
 
     ## Loading Model
-    model, _, preprocess = create_model_and_transforms(model_name, pretrained=pretrained)
+    if args.cache_dir != None:
+        model, _, preprocess = create_model_and_transforms(model_name, pretrained=pretrained, cache_dir=args.cache_dir)
+    else:
+        model, _, preprocess = create_model_and_transforms(model_name, pretrained=pretrained)
     model.to(device)
     model.eval()
     context_length = model.context_length
@@ -197,8 +201,6 @@ def main(args):
 
         print()  # spacing
 
-        if label=="tiger shark":
-            break
 
     # Once the loop over classes is done, prepare the result structure
     results = {
