@@ -342,7 +342,7 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
-def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plot=False, means=[]):
+def reconstruct_embeddings(data, embeddings, types, device="cpu", return_princ_comp=False, plot=False, means=[]):
     """
     Reconstruct the embeddings using the principal components in data.
     Parameters:
@@ -362,7 +362,7 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plo
         assert False, "No embeddings to reconstruct or different lengths."
 
     # Initialize the reconstructed embeddings
-    reconstructed_embeddings = [torch.zeros_like(embeddings[i]) for i in range(len(embeddings))]
+    reconstructed_embeddings = [torch.zeros_like(embeddings[i].to(device)) for i in range(len(embeddings))]
 
     # Store reconstruction values for plotting
     rec_x = []
@@ -371,15 +371,15 @@ def reconstruct_embeddings(data, embeddings, types, return_princ_comp=False, plo
     # Iterate over each principal component of interest
     for count, component in enumerate(data):
         # Retrieve projection matrices and mean values
-        project_matrix = torch.tensor(component["project_matrix"])
-        vh = torch.tensor(component["vh"])
+        project_matrix = torch.tensor(component["project_matrix"]).to(device)
+        vh = torch.tensor(component["vh"]).to(device)
         princ_comp = component["princ_comp"]
         s = component["strength_abs"]
 
         # Reconstruct Embeddings
         for i in range(len(embeddings)):
             # Derive masking
-            mask = torch.zeros((embeddings[i].shape[0], vh.shape[0]))
+            mask = torch.zeros((embeddings[i].shape[0], vh.shape[0])).to(device)
 
             if types[i] == "text":
                 mask[:, princ_comp] = (embeddings[i] @ vh.T)[:, princ_comp].squeeze()
@@ -456,7 +456,7 @@ def get_remaining_pcs(data, top_k_details):
     return remaining_pcs
 
 
-def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90, plot=True):
+def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, top_k=10, approx=0.90, plot=True, device="cpu"):
     """
     Reconstruct the embeddings using the principal components in data.
     Parameters:
@@ -480,11 +480,11 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
     for count, entry in enumerate(data):
         if count == 0:
             # For the first principal component, initialize the query representation
-            [query_repres], _ = reconstruct_embeddings([data[count]], [embedding], [type], return_princ_comp=False)
+            [query_repres], _ = reconstruct_embeddings([data[count]], [embedding], [type], return_princ_comp=False, device=device)
 
         else:
             # For subsequent components, accumulate their contributions
-            [query_repres_tmp], _ = reconstruct_embeddings([data[count]], [embedding], [type], return_princ_comp=False)
+            [query_repres_tmp], _ = reconstruct_embeddings([data[count]], [embedding], [type], return_princ_comp=False, device=device)
             query_repres += query_repres_tmp
         # Add count of layer and head
         key = (data[count]["layer"], data[count]["head"])
@@ -933,7 +933,7 @@ def visualize_principal_component(
 
 
 @torch.no_grad()
-def reconstruct_embeddings_proj(data, embeddings, types, return_princ_comp=False, plot=False, means=[]):
+def reconstruct_embeddings_proj(data, embeddings, types, device="cpu",return_princ_comp=False, plot=False, means=[]):
     """
     Reconstruct the embeddings using the principal components in data.
     Parameters:
@@ -953,15 +953,15 @@ def reconstruct_embeddings_proj(data, embeddings, types, return_princ_comp=False
         assert False, "No embeddings to reconstruct or different lengths."
 
     # Initialize the reconstructed embeddings
-    reconstructed_embeddings = [torch.zeros_like(embeddings[i]) for i in range(len(embeddings))]
+    reconstructed_embeddings = [torch.zeros_like(embeddings[i].to(device)) for i in range(len(embeddings))]
 
     # Iterate over each principal component of interest
-    all_pcs = torch.zeros((len(data), torch.tensor(data[0]["vh"]).shape[1]))
+    all_pcs = torch.zeros((len(data), torch.tensor(data[0]["vh"]).shape[1])).to(device)
     #activationsdada
     for count, component in enumerate(data):
         # Retrieve projection matrices and mean values
-        project_matrix = torch.tensor(component["project_matrix"])
-        vh = torch.tensor(component["vh"])
+        project_matrix = torch.tensor(component["project_matrix"]).to(device)
+        vh = torch.tensor(component["vh"]).to(device)
         princ_comp = component["princ_comp"]
         s = component["strength_abs"]
         # Recover princ comp

@@ -62,7 +62,7 @@ def main(args):
 
     subset_dim = args.subset_dim
     model_name = args.model
-    pretrained = args.pretrained
+
     device = args.device
     attention_dataset = os.path.join(
         args.output_dir, 
@@ -72,33 +72,16 @@ def main(args):
     # Load data/embeddings
     final_embeddings_images = torch.tensor(
         np.load(os.path.join(args.output_dir, f"{args.dataset}_embeddings_{args.model}_seed_{args.seed}.npy"), mmap_mode="r")
-    )  # shape: [b, d] or [b, l, h, d] depending on your saving format
+    ).to(device)  # shape: [b, d] or [b, l, h, d] depending on your saving format
     final_embeddings_texts = torch.tensor(
         np.load(os.path.join(args.output_dir, f"{args.dataset_text}_{model_name}.npy"), mmap_mode="r")
-    )
+    ).to(device)
     classifier_ = torch.tensor(
         np.load(os.path.join(args.output_dir, f"{args.dataset}_classifier_{model_name}.npy"), mmap_mode="r")
-    )
+    ).to(device)
     labels_ = torch.tensor(
         np.load(os.path.join(args.output_dir, f"{args.dataset}_labels_{model_name}_seed_{args.seed}.npy"), mmap_mode="r")
-    )
-
-    ## Loading Model
-    if args.cache_dir != None:
-        model, _, preprocess = create_model_and_transforms(model_name, pretrained=pretrained, cache_dir=args.cache_dir)
-    else:
-        model, _, preprocess = create_model_and_transforms(model_name, pretrained=pretrained)
-    model.to(device)
-    model.eval()
-    context_length = model.context_length
-    vocab_size = model.vocab_size
-    tokenizer = get_tokenizer(model_name)
-
-    prs = hook_prs_logger(model, device, spatial=False)
-    print("Model parameters:", f"{np.sum([int(np.prod(p.shape)) for p in model.parameters()]):,}")
-    print("Context length:", context_length)
-    print("Vocab size:", vocab_size)
-    print("Len of res:", len(model.visual.transformer.resblocks))
+    ).to(device) 
 
     # Prepare to store results
     acc_baseline_list = []
@@ -110,31 +93,15 @@ def main(args):
 
     query_text = True
     top_k = args.top_k
-    approx = args.max_approx
 
     # Precompute means
     mean_final_images = torch.mean(final_embeddings_images, axis=0)
     mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
-
-    for label in imagenet_classes:
-        # Retrieve an embedding
-        with torch.no_grad():
-            if query_text:
-                text_query = label
-                text_query_token = tokenizer(text_query).to(device)
-                topic_emb = model.encode_text(text_query_token, normalize=True)
-            else:
-                # Example for image query
-                prs.reinit()
-                text_query = "woman.png"
-                image_pil = Image.open(f'images/{text_query}')
-                image = preprocess(image_pil)[np.newaxis, :, :, :]
-                topic_emb = model.encode_image(
-                    image.to(device),
-                    attn_method='head_no_spatial',
-                    normalize=True
-                )
-
+    labels_embeddings = classifier_.T
+    for c, label in enumerate(imagenet_classes):
+        
+        # Retrieve topic embedding
+        topic_emb = labels_embeddings[c:c+1, :]
         # Mean center the embeddings
         mean_final = mean_final_texts if query_text else mean_final_images
         topic_emb_cent = topic_emb - mean_final
@@ -147,6 +114,7 @@ def main(args):
             data, 
             [topic_emb_cent], 
             ["text" if query_text else "image"], 
+            device=device,
             return_princ_comp=True, 
             plot=False, 
             means=[mean_final]
@@ -159,7 +127,7 @@ def main(args):
         # Reconstruct embeddings for all images using those top-k PCs
         image_emb_cent_embed = final_embeddings_images - mean_final_images
         data = get_data(attention_dataset, -1, skip_final=True)
-        [rec], _ = reconstruct_embeddings_proj(top_k_entries, [image_emb_cent_embed], ["image"])
+        [rec], _ = reconstruct_embeddings_proj(top_k_entries, [image_emb_cent_embed], ["image"], device=device)
 
         rec_proof = image_emb_cent_embed - rec
         # Normalize
