@@ -7,7 +7,7 @@ np.random.seed(420)
 
 
 @torch.no_grad()
-def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp, device):
+def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp, device, iters=None):
     print(f"\nLayer [{layer}], Head: {head}")
 
     """
@@ -23,6 +23,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
         head: The current head.
         text_per_princ_comp: Number of texts to consider for each princ_comp.
         device: The device to perform computations on.
+        iters: The maximum number of PCs to use
 
     Returns:
         reconstruct: The reconstructed attention head matrix using the found basis.
@@ -45,6 +46,9 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     # Determine the rank where cumulative variance exceeds the threshold of total variance
     threshold = 0.99 # How much variance should cover the top princ_comps of the matrix 
     rank = torch.sum(cumulative_variance / total_variance < threshold).item() + 1
+    if iters is not None:
+        rank = min(rank, iters)
+        
     vh = vh[:rank, :]
     s = s[:rank]
     u = u[:, :rank]

@@ -70,6 +70,13 @@ def get_args_parser():
         help="The seed used for the dataset.",
     )
 
+    parser.add_argument(
+        "--max_text",
+        type=int,
+        default=80,
+        help="The maximum number of text to use for the approximation.",
+    )
+
     parser.add_argument("--algorithm", default="svd_data_approx", help="The algorithm to use")
     parser.add_argument("--device", default="cuda:0", help="device to use for testing")
     return parser
@@ -113,7 +120,7 @@ def main(args):
     with open(
         os.path.join(
             args.output_dir,
-            f"{args.dataset}_completeness_{args.text_descriptions}_{args.model}_algo_{args.algorithm}_seed_{args.seed}.jsonl",
+            f"{args.dataset}_completeness_{args.text_descriptions}_{args.model}_algo_{args.algorithm}_seed_{args.seed}_max_text{args.max_text}.jsonl",
         ),
         "w",
     ) as jsonl_file:
@@ -131,6 +138,7 @@ def main(args):
                     head,
                     args.text_per_princ_comp,
                     args.device,
+                    iters=args.max_text
                 )
                 # Use the final reconstructed attention head matrix
                 attns[:, i, head] = results
