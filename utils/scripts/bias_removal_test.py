@@ -186,7 +186,7 @@ def main(args):
 
     # Write out to a .jsonl file with a meaningful name
     out_filename = (
-        f"{args.dataset}_bias_test_{args.dataset_text}_{args.model}_algo_svd_data_approx_seed_{args.seed}.jsonl"
+        f"{args.dataset}_bias_test_{args.dataset_text}_{args.model}_algo_svd_data_approx_seed_{args.seed}_top{top_k}.jsonl"
     )
     out_path = os.path.join(args.output_dir, out_filename)
 
