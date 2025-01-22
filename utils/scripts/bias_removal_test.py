@@ -127,7 +127,7 @@ def main(args):
         # Reconstruct embeddings for all images using those top-k PCs
         image_emb_cent_embed = final_embeddings_images - mean_final_images
         data = get_data(attention_dataset, -1, skip_final=True)
-        [rec], _ = reconstruct_embeddings_proj(top_k_entries, [image_emb_cent_embed], ["image"], device=device)
+        [rec], _ = reconstruct_all_embeddings_mean_ablation_heads(top_k_entries, [image_emb_cent_embed], ["image"], device=device)
 
         rec_proof = image_emb_cent_embed - rec
         # Normalize

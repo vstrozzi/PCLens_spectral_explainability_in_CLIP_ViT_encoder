@@ -342,6 +342,143 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
+def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated):
+    """
+    Reconstruct the embeddings using the contribution of only the heads with PCs in data.
+    Parameters:
+    - data (list): List of dictionaries containing all details for each principal component.
+    - data_pcs (list): List of dictionaries containing all details for each principal component of interest.
+    - embeddings (list): List containing the embeddings to reconstruct.
+    - types (list): List of types of embeddings to reconstruct.
+    - return_princ_comp (bool): Return the principal components of the given embeddings
+    - plot (bool): Plot the reconstructed embeddings cosine similarity.
+    - means (list): List of mean values for the embeddings. mean_ablated_and_replaced = mlps.sum(axis=1) + attns.sum(axis=(1, 2))
+
+
+    Returns:
+    - list: Reconstructed embeddings NOT mean centered.
+    - data: Data updated with principal components of the given embeddings (if return_princ_comp is True).
+    """
+
+    if len(embeddings) == 0:
+        assert False, "No embeddings to reconstruct or different lengths."
+
+    # Sort content of data_pcs based on the natural order of pcs
+    heads_to_keep = sorted(
+    list(
+        set((x["layer"], x["head"]) for x in data_pcs if (x["layer"], x["head"]) != (-1, -1))
+        )
+    )
+    print("Heads to keep: ", len(heads_to_keep))
+
+    grouped_data = []
+    for (layer, head) in heads_to_keep:
+        # Filter the original data to only those items matching the current layer/head
+        relevant_items = [item for item in data_pcs if item["layer"] == layer and item["head"] == head]
+        
+        # Collect all principal components, vh, and mean_values for the current layer/head
+        princ_comps = [item["princ_comp"] for item in relevant_items]
+        vh_vals     = torch.tensor(relevant_items[0]["vh"])
+        means       = torch.tensor(relevant_items[0]["mean_values_att"]).unsqueeze(0)
+
+        grouped_data.append(
+            (layer,
+            head,
+            princ_comps,
+            vh_vals,
+            means)
+            )
+
+    # Initialize the reconstructed embeddings
+    nr_layer_not_anal = tot_nr_layers - nr_mean_ablated
+    # Put initial contribution
+    reconstructed_embeddings = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, :, :].sum(axis=(1, 2))
+
+    # Iterate over each principal component of interest and keep the contribution of their head, sum mean ablation for all the other
+    prev_layer, prev_head = nr_layer_not_anal, 0
+    for layer, head, princ_comps, vh, mean_values in grouped_data:
+        # Get contribution for our principal component on mean centered data
+        mask = torch.zeros((embeddings.shape[0], vh.shape[0])).to(device)
+        mask[:, princ_comps] = ((attns[:, layer, head, :] - mean_values) @ vh.T)[:, princ_comps]
+        embed_proj_back = mask @ vh + mean_values
+        reconstructed_embeddings += embed_proj_back
+        
+        # Add mean ablation for whole heads when not used 
+        while prev_layer != layer or prev_head != head: 
+            # Add mean contribution of all the data not in the pcs
+            reconstructed_embeddings += torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
+            if prev_head == tot_nr_heads - 1:
+                prev_head = 0
+                prev_layer += 1
+            else:
+                prev_head += 1   
+            if prev_head == tot_nr_heads -1 and prev_layer == tot_nr_layers - 1:
+                break
+        prev_head, prev_layer = head + 1, layer
+        if prev_head == tot_nr_heads:
+                prev_head = 0
+                prev_layer += 1
+        if prev_head == tot_nr_heads and prev_layer == tot_nr_layers:
+            break
+
+    return reconstructed_embeddings
+
+@torch.no_grad()
+def reconstruct_all_embeddings_mean_ablation_heads(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated):
+    """
+    Reconstruct the embeddings using the contribution of only the heads with PCs in data.
+    Parameters:
+    - data (list): List of dictionaries containing all details for each principal component.
+    - data_pcs (list): List of dictionaries containing all details for each principal component of interest.
+    - embeddings (list): List containing the embeddings to reconstruct.
+    - types (list): List of types of embeddings to reconstruct.
+    - return_princ_comp (bool): Return the principal components of the given embeddings
+    - plot (bool): Plot the reconstructed embeddings cosine similarity.
+    - means (list): List of mean values for the embeddings. mean_ablated_and_replaced = mlps.sum(axis=1) + attns.sum(axis=(1, 2))
+
+
+    Returns:
+    - list: Reconstructed embeddings NOT mean centered.
+    - data: Data updated with principal components of the given embeddings (if return_princ_comp is True).
+    """
+
+    if len(embeddings) == 0:
+        assert False, "No embeddings to reconstruct or different lengths."
+
+    # Sort content of data_pcs based on the natural order of pcs
+    heads_to_keep = sorted(list(set([(x["layer"], x["head"]) for x in data_pcs if (x["layer"], x["head"]) != (-1, -1)])))
+
+    print("Heads to keep:", len(heads_to_keep))
+    # Initialize the reconstructed embeddings
+    nr_layer_not_anal = tot_nr_layers - nr_mean_ablated
+    # Put initial contribution
+    reconstructed_embeddings = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, :, :].sum(axis=(1, 2))
+
+    # Iterate over each principal component of interest and keep the contribution of their head, sum mean ablation for all the other
+    prev_layer, prev_head = nr_layer_not_anal, 0
+    for layer, head in heads_to_keep:
+        reconstructed_embeddings += attns[:, layer, head, :]
+        # Add mean ablation
+        while prev_layer != layer or prev_head != head: 
+            # Add mean contribution of all the data not in the pcs
+            reconstructed_embeddings += torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
+            if prev_head == tot_nr_heads - 1:
+                prev_head = 0
+                prev_layer += 1
+            else:
+                prev_head += 1   
+            if prev_head == tot_nr_heads -1 and prev_layer == tot_nr_layers - 1:
+                break
+        prev_head, prev_layer = head + 1, layer
+        if prev_head == tot_nr_heads:
+                prev_head = 0
+                prev_layer += 1
+        if prev_head == tot_nr_heads and prev_layer == tot_nr_layers:
+            break
+
+    return reconstructed_embeddings
+
+@torch.no_grad()
 def reconstruct_embeddings(data, embeddings, types, device="cpu", return_princ_comp=False, plot=False, means=[]):
     """
     Reconstruct the embeddings using the principal components in data.
@@ -930,6 +1067,7 @@ def visualize_principal_component(
         
     # Visualize the results
     visualize_dbs(data, dbs_new, ds_vis, texts_str, imagenet_classes, text_query=None)
+
 
 
 @torch.no_grad()
