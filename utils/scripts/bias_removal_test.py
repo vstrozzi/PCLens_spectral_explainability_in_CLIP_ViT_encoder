@@ -30,7 +30,7 @@ def get_args_parser():
     )
     parser.add_argument("--seed", default=0, type=int)
 
-    parser.add_argument("--amplification", default=1, type=int)
+    parser.add_argument("--amplification", default=5, type=int)
 
     parser.add_argument("--subset_dim", default=10, type=int)
 
@@ -51,7 +51,7 @@ def get_args_parser():
         help="text dataset used for the explanations",
     )
 
-    parser.add_argument("--top_k", type=int, default=30, help="Nr of PCs of the query system")
+    parser.add_argument("--top_k", type=int, default=50, help="Nr of PCs of the query system")
     parser.add_argument("--max_approx", type=float, default=1, help="Max approx for the reconstruction")
 
     return parser
@@ -141,6 +141,7 @@ def main(args):
         data = sort_data_by(data, "correlation_princ_comp_abs", descending=True)
         top_k_entries = top_data(data, top_k)
 
+        # Increase amplification
         rec = reconstruct_all_embeddings_mean_ablation_pcs(
         top_k_entries,
         mlps,
@@ -154,6 +155,7 @@ def main(args):
     
         top_k_entries_other  = get_remaining_pcs(data, top_k_entries)
 
+        # Diminish amplification
         rec_proof = reconstruct_all_embeddings_mean_ablation_pcs(
         top_k_entries_other,
         mlps,
@@ -162,7 +164,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        amplification=args.amplificationx
+        amplification= 1
         )
 
         # Normalize
