@@ -342,7 +342,7 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
-def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated):
+def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated, amplification=1.2):
     """
     Reconstruct the embeddings using the contribution of only the heads with PCs in data.
     Parameters:
@@ -375,9 +375,9 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     for (layer, head) in heads_to_keep:
         # Filter the original data to only those items matching the current layer/head
         relevant_items = [item for item in data_pcs if item["layer"] == layer and item["head"] == head]
-        
         # Collect all principal components, vh, and mean_values for the current layer/head
         princ_comps = [item["princ_comp"] for item in relevant_items]
+        s = torch.tensor([item["strength_abs"] for item in relevant_items])
         vh_vals     = torch.tensor(relevant_items[0]["vh"])
         means       = torch.tensor(relevant_items[0]["mean_values_att"]).unsqueeze(0)
 
@@ -385,6 +385,7 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
             (layer,
             head,
             princ_comps,
+            s,
             vh_vals,
             means)
             )
@@ -396,12 +397,15 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
 
     # Iterate over each principal component of interest and keep the contribution of their head, sum mean ablation for all the other
     prev_layer, prev_head = nr_layer_not_anal, 0
-    for layer, head, princ_comps, vh, mean_values in grouped_data:
+    for layer, head, princ_comps, s, vh, mean_values in grouped_data:
         # Get contribution for our principal component on mean centered data
-        mask = torch.zeros((embeddings.shape[0], vh.shape[0])).to(device)
-        mask[:, princ_comps] = ((attns[:, layer, head, :] - mean_values) @ vh.T)[:, princ_comps]
-        embed_proj_back = mask @ vh + mean_values
-        reconstructed_embeddings += embed_proj_back
+        if princ_comps != []:
+            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask[:, princ_comps] = ((attns[:, layer, head, :] - mean_values*1./amplification) @ vh.T)[:, princ_comps]*amplification
+            embed_proj_back = mask @ vh
+
+            reconstructed_embeddings += embed_proj_back + mean_values
+
         
         # Add mean ablation for whole heads when not used 
         while prev_layer != layer or prev_head != head: 
@@ -882,23 +886,32 @@ def create_dbs(scores_array_images, scores_array_texts, nr_top_imgs=20, nr_worst
     """
     # Sort indices of scores
     sorted_scores_images = np.sort(scores_array_images, order=('score', 'score_vis'))
-    sorted_scores_texts = np.sort(scores_array_texts, order=('score', 'score_vis'))
 
     # Top scores
     top_dbs_images = sorted_scores_images[-nr_top_imgs:][::-1]  # Get top `nr_top_imgs` elements, sorted descending
-    top_dbs_texts = sorted_scores_texts[-nr_top_imgs:][::-1]  # Get top `nr_top_imgs` elements, sorted descending
 
     # Worst scores
     worst_dbs_images = sorted_scores_images[:nr_worst_imgs]  # Get worst `nr_worst_imgs` elements, sorted ascending
-    worst_dbs_texts = sorted_scores_texts[:nr_worst_imgs]  # Get worst `nr_worst_imgs` elements, sorted ascending
 
     # Continuous scores (step-based interpolation)
     t = np.linspace(0, 1, num=nr_cont_imgs)  # Uniformly spaced in [0, 1]
     scaled_t = 0.5 * (1 - np.cos(np.pi * t))  # Cosine transformation for symmetry
     nonlinear_indices_images = (scaled_t * (len(sorted_scores_images) - 1)).astype(int)
     cont_dbs_images = sorted_scores_images[nonlinear_indices_images]
-    nonlinear_indices_texts = (scaled_t * (len(sorted_scores_texts) - 1)).astype(int)
-    cont_dbs_texts = sorted_scores_texts[nonlinear_indices_texts]
+
+
+    if scores_array_texts is None:
+        sorted_scores_texts = None
+        top_dbs_texts = None
+        cont_dbs_texts = None
+        worst_dbs_texts = None
+        nonlinear_indices_texts = None
+    else:
+        sorted_scores_texts = np.sort(scores_array_texts, order=('score', 'score_vis'))
+        top_dbs_texts = sorted_scores_texts[-nr_top_imgs:][::-1]  # Get top `nr_top_imgs` elements, sorted descending
+        worst_dbs_texts = sorted_scores_texts[:nr_worst_imgs]  # Get worst `nr_worst_imgs` elements, sorted ascending
+        nonlinear_indices_texts = (scaled_t * (len(sorted_scores_texts) - 1)).astype(int)
+        cont_dbs_texts = sorted_scores_texts[nonlinear_indices_texts]
 
     # Prepare three sets of results to display:
     # 1. Highest cosine similarity samples
@@ -967,10 +980,12 @@ def visualize_dbs(data, dbs, ds_vis, texts_str, imagenet_classes, text_query= No
 
         # Prepare and display the corresponding texts with their scores
         output_rows = []
-        for score, score_vis, text_index in db_text:
-            output_rows.append([texts_str[text_index], score, score_vis])
-        output_df = pd.DataFrame(output_rows, columns=["Text", "Cosine Similarity", "Correlation"])
-        print(tabulate(output_df, headers='keys', tablefmt='psql'))
+
+        if db_text is not None:
+            for score, score_vis, text_index in db_text:
+                output_rows.append([texts_str[text_index], score, score_vis])
+            output_df = pd.DataFrame(output_rows, columns=["Text", "Cosine Similarity", "Correlation"])
+            print(tabulate(output_df, headers='keys', tablefmt='psql'))
 
         # Display the images in a grid layout
         rows, cols = (length // 4, 4)  # Grid layout: 4 columns, rows derived from the number of images
@@ -1115,12 +1130,12 @@ def reconstruct_embeddings_proj(data, embeddings, types, device="cpu",return_pri
     # Cumulative sum of singular values
     cumulative_variance = torch.cumsum(s, dim=0)
     # Determine the rank where cumulative variance exceeds the threshold of total variance
-    threshold = 0.99 # How much variance should cover the top princ_comps of the matrix 
+    threshold = 0.999 # How much variance should cover the top princ_comps of the matrix 
     rank = torch.sum(cumulative_variance / total_variance < threshold).item() + 1
     print(f"The rank of the matrix is {rank}")
     for i in range(len(embeddings)):
         # Derive masking
-        reconstructed_embeddings[i] = embeddings[i] @ all_pcs.T @ torch.linalg.pinv(all_pcs @ all_pcs.T) @ all_pcs
+        reconstructed_embeddings[i] = embeddings[i] @ vh.T @ vh #@ all_pcs.T @ torch.linalg.pinv(all_pcs @ all_pcs.T) @ all_pcs
 
 
     return reconstructed_embeddings, data

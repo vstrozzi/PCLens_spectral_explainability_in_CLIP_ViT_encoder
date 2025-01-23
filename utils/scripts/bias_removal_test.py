@@ -30,8 +30,11 @@ def get_args_parser():
     )
     parser.add_argument("--seed", default=0, type=int)
 
-    parser.add_argument("--subset_dim", default=0, type=int)
+    parser.add_argument("--amplification", default=1, type=int)
 
+    parser.add_argument("--subset_dim", default=10, type=int)
+
+    parser.add_argument("--num_real_layer", default=4, type=int)
     parser.add_argument("--cache_dir", default=None)
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
@@ -82,6 +85,20 @@ def main(args):
     labels_ = torch.tensor(
         np.load(os.path.join(args.output_dir, f"{args.dataset}_labels_{model_name}_seed_{args.seed}.npy"), mmap_mode="r")
     ).to(device) 
+    with open(
+        os.path.join(args.output_dir, f"{args.dataset}_attn_{args.model}_seed_{args.seed}.npy"), "rb"
+    ) as f:
+        attns = torch.tensor(np.load(f))  # [b, l, h, d]
+    with open(
+        os.path.join(args.output_dir, f"{args.dataset}_mlp_{args.model}_seed_{args.seed}.npy"), "rb"
+    ) as f:
+        mlps = torch.tensor(np.load(f))  # [b, l+1, d]
+
+    num_last_layers = args.num_real_layer
+
+    # Save important stuff
+    nr_layers_ = attns.shape[1]
+    nr_heads_ = attns.shape[2]
 
     # Prepare to store results
     acc_baseline_list = []
@@ -124,19 +141,34 @@ def main(args):
         data = sort_data_by(data, "correlation_princ_comp_abs", descending=True)
         top_k_entries = top_data(data, top_k)
 
-        # Reconstruct embeddings for all images using those top-k PCs
-        image_emb_cent_embed = final_embeddings_images - mean_final_images
-        data = get_data(attention_dataset, -1, skip_final=True)
-        [rec], _ = reconstruct_all_embeddings_mean_ablation_heads(top_k_entries, [image_emb_cent_embed], ["image"], device=device)
+        rec = reconstruct_all_embeddings_mean_ablation_pcs(
+        top_k_entries,
+        mlps,
+        attns, 
+        final_embeddings_images,
+        nr_layers_,
+        nr_heads_,
+        num_last_layers,
+        amplification=args.amplification
+        )
+    
+        top_k_entries_other  = get_remaining_pcs(data, top_k_entries)
 
-        rec_proof = image_emb_cent_embed - rec
+        rec_proof = reconstruct_all_embeddings_mean_ablation_pcs(
+        top_k_entries_other,
+        mlps,
+        attns, 
+        final_embeddings_images,
+        nr_layers_,
+        nr_heads_,
+        num_last_layers,
+        amplification=args.amplificationx
+        )
+
         # Normalize
         rec_proof /= rec_proof.norm(dim=-1, keepdim=True)
         rec /= rec.norm(dim=-1, keepdim=True)
 
-        # Add mean back
-        rec += mean_final_images
-        rec_proof += mean_final_images
 
         # -------------------------
         #  1) Baseline Accuracy
