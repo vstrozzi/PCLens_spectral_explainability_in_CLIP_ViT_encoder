@@ -51,7 +51,7 @@ def get_args_parser():
         help="text dataset used for the explanations",
     )
 
-    parser.add_argument("--top_k", type=int, default=50, help="Nr of PCs of the query system")
+    parser.add_argument("--top_k", type=int, default=200, help="Nr of PCs of the query system")
     parser.add_argument("--max_approx", type=float, default=1, help="Max approx for the reconstruction")
 
     return parser
@@ -150,7 +150,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        amplification=args.amplification
+        ratio=0.5,
         )
     
         top_k_entries_other  = get_remaining_pcs(data, top_k_entries)
@@ -164,7 +164,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        amplification= 1
+        ratio=0.5
         )
 
         # Normalize
@@ -176,7 +176,9 @@ def main(args):
         #  1) Baseline Accuracy
         # -------------------------
         baseline = final_embeddings_images
-        acc_base, indexes_approx_bas = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
+        prediction = baseline @ classifier_
+        acc_base, indexes_approx_bas = test_accuracy(prediction, labels_, label="Baseline")
+        print_tot_wrong_elements_label(prediction, label)
         count_base = print_wrong_elements_label(indexes_approx_bas, label, subset_dim)
         acc_baseline_list.append(float(acc_base))
         count_baseline_list.append(int(count_base))
@@ -184,7 +186,9 @@ def main(args):
         # -------------------------
         #  2) Reconstruction Accuracy
         # -------------------------
-        acc_r, indexes_approx_rec = test_accuracy(rec @ classifier_, labels_, label="Approximation with the reconstructed embeddings")
+        prediction = rec @ classifier_
+        acc_r, indexes_approx_rec = test_accuracy(prediction, labels_, label="Approximation with the reconstructed embeddings")
+        print_tot_wrong_elements_label(prediction, label)
         count_r = print_wrong_elements_label(indexes_approx_rec, label, subset_dim)
         acc_rec_list.append(float(acc_r))
         count_rec_list.append(int(count_r))
@@ -192,11 +196,13 @@ def main(args):
         # -------------------------
         #  3) "Bias Removal"/Final Accuracy
         # -------------------------
+        prediction = rec_proof @ classifier_
         acc_final, indexes_approx_final = test_accuracy(
-            rec_proof @ classifier_, 
+            prediction, 
             labels_, 
             label="Approximation with proof of concept"
         )
+        print_tot_wrong_elements_label(prediction, label)
         count_final = print_wrong_elements_label(indexes_approx_final, label, subset_dim)
         acc_bias_rem_list.append(float(acc_final))
         count_bias_rem_list.append(int(count_final))

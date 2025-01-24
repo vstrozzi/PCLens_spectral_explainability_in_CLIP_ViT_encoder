@@ -342,7 +342,7 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
-def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated, amplification=1.2):
+def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated, ratio=0.5, ablation=True):
     """
     Reconstruct the embeddings using the contribution of only the heads with PCs in data.
     Parameters:
@@ -363,6 +363,7 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     if len(embeddings) == 0:
         assert False, "No embeddings to reconstruct or different lengths."
 
+ 
     # Sort content of data_pcs based on the natural order of pcs
     heads_to_keep = sorted(
     list(
@@ -370,8 +371,9 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
         )
     )
     print("Heads to keep: ", len(heads_to_keep))
-
+    
     grouped_data = []
+
     for (layer, head) in heads_to_keep:
         # Filter the original data to only those items matching the current layer/head
         relevant_items = [item for item in data_pcs if item["layer"] == layer and item["head"] == head]
@@ -390,27 +392,45 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
             means)
             )
 
+
     # Initialize the reconstructed embeddings
     nr_layer_not_anal = tot_nr_layers - nr_mean_ablated
     # Put initial contribution
-    reconstructed_embeddings = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, :, :].sum(axis=(1, 2))
-
+    prev_layers = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, :, :].sum(axis=(1, 2))
+    reconstructed_embeddings = torch.zeros_like(prev_layers)
+    reconstruct_embeddings_mean_ablate = prev_layers
     # Iterate over each principal component of interest and keep the contribution of their head, sum mean ablation for all the other
     prev_layer, prev_head = nr_layer_not_anal, 0
     for layer, head, princ_comps, s, vh, mean_values in grouped_data:
         # Get contribution for our principal component on mean centered data
-        if princ_comps != []:
-            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
-            mask[:, princ_comps] = ((attns[:, layer, head, :] - mean_values*1./amplification) @ vh.T)[:, princ_comps]*amplification
-            embed_proj_back = mask @ vh
-
-            reconstructed_embeddings += embed_proj_back + mean_values
-
         
+        if not ablation:
+            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask = ((attns[:, layer, head, :]) @ vh.T)
+            reconstructed_embeddings += mask @ vh
+
+            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask = ((- mean_values) @ vh.T)
+            reconstruct_embeddings_mean_ablate += mask @ vh
+        else:
+            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask[:, princ_comps] = ((attns[:, layer, head, :]) @ vh.T)[:, princ_comps]
+            reconstructed_embeddings += mask @ vh
+
+            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask[:, princ_comps] = ((- mean_values) @ vh.T)[:, princ_comps]
+            reconstruct_embeddings_mean_ablate += mask @ vh
+
+        reconstruct_embeddings_mean_ablate += mean_values
+
         # Add mean ablation for whole heads when not used 
         while prev_layer != layer or prev_head != head: 
             # Add mean contribution of all the data not in the pcs
-            reconstructed_embeddings += torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
+            if ablation:
+                reconstruct_embeddings_mean_ablate +=  torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
+            else:
+                reconstructed_embeddings += attns[:, prev_layer, prev_head, :]
+
             if prev_head == tot_nr_heads - 1:
                 prev_head = 0
                 prev_layer += 1
@@ -424,6 +444,20 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
                 prev_layer += 1
         if prev_head == tot_nr_heads and prev_layer == tot_nr_layers:
             break
+    
+    # Amplification ==-1 keep original ratio
+    if ratio == -1:
+        reconstructed_embeddings += reconstruct_embeddings_mean_ablate
+    else:
+        norm_rec = reconstructed_embeddings.norm(dim=-1)
+        norm_rec_mean = reconstruct_embeddings_mean_ablate.norm(dim=-1)
+        norm_ratio = torch.mean(norm_rec_mean / norm_rec)
+        reconstructed_embeddings *= norm_ratio * ratio
+        reconstructed_embeddings += reconstruct_embeddings_mean_ablate*1/norm_ratio*(1-ratio)
+    # No pcs selected, just return whole mean ablation
+    if data_pcs == []:
+        reconstructed_embeddings = mlps.sum(axis=1) + torch.mean(attns.sum(axis=(2))[:, :], axis=0).sum(0)
+
 
     return reconstructed_embeddings
 
@@ -1167,6 +1201,22 @@ def print_wrong_elements_label(indexes_1, label, subset_dim, text="wrong"):
 
     return count
 
+def print_tot_wrong_elements_label(predictions, label):
+    # TODO: Hardcoded for ImageNet
+    # Retrieve the labels of the dataset. 
+    # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
+    curr_preds = predictions.argmax(dim=1)
+    label_idx = imagenet_classes.index(label)
+    count = 0
+    for pred in curr_preds:
+        if pred == label_idx:
+            count +=1
+        
+    # Print the result
+    print(f"In total, for the {label} label, there are {count} wrong elements.")
+
+
+    return count
 def print_diff_elements(indexes_1, indexes_2, subset_dim):
     # TODO: Hardcoded for ImageNet
     # Retrieve the labels of the dataset. 
