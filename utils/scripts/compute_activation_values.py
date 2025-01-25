@@ -36,6 +36,9 @@ def get_args_parser():
                         help="cache directory for models weight")
     parser.add_argument("--samples_per_class", default=None, type=int,
                         help="number of samples per class")
+
+    parser.add_argument("--tot_samples_per_class", default=None, type=int,
+                        help="Total number of samples per class in the dataset")
     parser.add_argument("--max_nr_samples_before_writing", default=1000, type=int,
                         help="How many samples to keep in RAM before saving them to chunk files")
 
@@ -84,10 +87,11 @@ def main(args):
     else:
         ds = ImageFolder(root=args.data_path, transform=preprocess)
 
+    # Depending
     dataloader = dataset_to_dataloader(
         ds,
         samples_per_class=args.samples_per_class,
-        tot_samples_per_class=50,  # or whatever you prefer
+        tot_samples_per_class=args.tot_samples_per_class,  # or whatever you prefer
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -160,6 +164,8 @@ def main(args):
         labels_results.clear()
         
     for i, (image, labels) in enumerate(tqdm.tqdm(dataloader)):
+
+        print(labels)
         batch_size_here = image.shape[0]
         total_samples_seen += batch_size_here
 

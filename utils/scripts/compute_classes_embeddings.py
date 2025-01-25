@@ -11,6 +11,7 @@ import tqdm
 from utils.models.factory import create_model_and_transforms, get_tokenizer
 from utils.models.openai_templates import OPENAI_IMAGENET_TEMPLATES
 from utils.datasets_constants.imagenet_classes import imagenet_classes
+from utils.datasets_constants.cifar_10_classes import cifar_10_classes
 from utils.datasets_constants.cub_classes import cub_classes, waterbird_classes
 
 
@@ -91,6 +92,7 @@ def main(args):
     print("Vocab size:", vocab_size)
     classes = {
         'imagenet': imagenet_classes, 
+        'CIFAR10': cifar_10_classes,
         'waterbirds': cub_classes, 
         'binary_waterbirds': waterbird_classes, 
         'cub': cub_classes}[args.dataset]

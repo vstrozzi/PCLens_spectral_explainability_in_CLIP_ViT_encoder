@@ -5,13 +5,19 @@ import pandas as pd
 from tabulate import tabulate
 import torch
 import numpy as np
-from torchvision.datasets import ImageNet
+from torchvision.datasets import ImageNet, CIFAR10, CIFAR100, ImageFolder
+from utils.datasets.binary_waterbirds import BinaryWaterbirds
+
 import random
 from collections import defaultdict
+from utils.datasets.dataset_helpers import dataset_subset
 import matplotlib.pyplot as plt
 from utils.misc.visualization import visualization_preprocess
 from utils.misc.misc import accuracy_correct
 from utils.datasets_constants.imagenet_classes import imagenet_classes
+from utils.datasets_constants.cifar_10_classes import cifar_10_classes
+from utils.datasets_constants.cub_classes import cub_classes, waterbird_classes
+
 
 ### Layout of data
 @dataclass
@@ -403,7 +409,6 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     prev_layer, prev_head = nr_layer_not_anal, 0
     for layer, head, princ_comps, s, vh, mean_values in grouped_data:
         # Get contribution for our principal component on mean centered data
-        
         if not ablation:
             mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
             mask = ((attns[:, layer, head, :]) @ vh.T)
@@ -857,7 +862,7 @@ def image_grid(images, rows, cols, labels=None, scores=None, scores_vis=None, fi
     plt.tight_layout()
     plt.show()
 
-def create_dataset_imagenet(imagenet_path, transform, samples_per_class=3, tot_samples_per_class=50, seed=50):
+def create_dataset(imagenet_path, transform, samples_per_class=3, tot_samples_per_class=50, seed=50, dataset="imagenet"):
     """
     Create a balanced subset of the ImageNet validation dataset for nearest-neighbor (NN) search.
 
@@ -969,7 +974,7 @@ def create_dbs(scores_array_images, scores_array_texts, nr_top_imgs=20, nr_worst
     return dbs
 
 
-def visualize_dbs(data, dbs, ds_vis, texts_str, imagenet_classes, text_query= None):
+def visualize_dbs(data, dbs, ds_vis, texts_str, classes, text_query= None):
     """
     Visualize and analyze subsets of images and their associated text contributions 
     based on cosine similarity scores.
@@ -1005,7 +1010,7 @@ def visualize_dbs(data, dbs, ds_vis, texts_str, imagenet_classes, text_query= No
         # Collect image samples, their class labels, and similarity scores
         for score, score_vis, image_index in db:
             images.append(ds_vis[image_index][0])  # Image data
-            labels.append(imagenet_classes[ds_vis[image_index][1]])  # Class label
+            labels.append(classes[ds_vis[image_index][1]])  # Class label
             scores.append(score)
             scores_vis.append(score_vis)  # Cosine similarity score
 
@@ -1028,7 +1033,8 @@ def visualize_dbs(data, dbs, ds_vis, texts_str, imagenet_classes, text_query= No
 def visualize_principal_component(
     layer, head, princ_comp, nr_top_imgs, nr_worst_imgs, nr_cont_imgs,
     attention_dataset, final_embeddings_images, final_embeddings_texts, 
-    seed, imagenet_path, texts_str, imagenet_classes, samples_per_class=3,
+    seed, data_path, texts_str, samples_per_class=3, dataset="imagenet",
+    tot_samples_per_class=50,
     transform=visualization_preprocess
 ):
     """
@@ -1048,7 +1054,6 @@ def visualize_principal_component(
     - seed (int): Random seed for reproducibility when creating the dataset.
     - imagenet_path (str): Path to the root directory of the ImageNet dataset.
     - texts_str (list of str): List of text descriptions corresponding to text embeddings.
-    - imagenet_classes (list of str): List of class names in the ImageNet dataset.
     - transform (callable, optional): Transformation function to preprocess ImageNet images. 
                                       Defaults to `visualization_preprocess`.
 
@@ -1059,10 +1064,29 @@ def visualize_principal_component(
     data = get_data(attention_dataset, -1, skip_final=True)
     data = get_data_component(data, layer, head, princ_comp)
     
-    # Load a subset of the ImageNet dataset
-    ds_vis = create_dataset_imagenet(
-        imagenet_path, transform, samples_per_class=samples_per_class, 
-        tot_samples_per_class=50, seed=seed
+
+    # Dataset:
+    if dataset == "imagenet":
+        ds = ImageNet(root=data_path+"imagenet/", split="val", transform=transform)
+    elif dataset == "binary_waterbirds":
+        ds = BinaryWaterbirds(root=data_path, split="test", transform=transform)
+    elif dataset == "CIFAR100":
+        ds = CIFAR100(
+            root=data_path, download=True, train=False, transform=transform
+        )
+    elif dataset == "CIFAR10":
+        ds = CIFAR10(
+            root=data_path, download=True, train=False, transform=transform
+        )
+    else:
+        ds = ImageFolder(root=data_path, transform=transform)
+
+    # Depending
+    ds_vis = dataset_subset(
+        ds,
+        samples_per_class=samples_per_class,
+        tot_samples_per_class=tot_samples_per_class,  # or whatever you prefer
+        seed=seed,
     )
 
     # Initialize arrays to store similarity scores for images and texts
@@ -1113,9 +1137,16 @@ def visualize_principal_component(
         if nrs_dbs[i] == 0:
             continue
         dbs_new.append(db)
-        
+    
+    classes = {
+        'imagenet': imagenet_classes, 
+        'CIFAR10': cifar_10_classes,
+        'waterbirds': cub_classes, 
+        'binary_waterbirds': waterbird_classes, 
+        'cub': cub_classes}[dataset]
+    
     # Visualize the results
-    visualize_dbs(data, dbs_new, ds_vis, texts_str, imagenet_classes, text_query=None)
+    visualize_dbs(data, dbs_new, ds_vis, texts_str, classes, text_query=None)
 
 
 
@@ -1244,13 +1275,11 @@ def print_diff_elements(indexes_1, indexes_2, subset_dim):
     # Print the result
     print(f"The different elements labels are: {sorted_output}")
 
-def print_wrong_elements(indexes_1, subset_dim, text="wrong"):
+def print_wrong_elements(indexes_1, labels, classes, text="wrong"):
     # TODO: Hardcoded for ImageNet
     # Retrieve the labels of the dataset. 
     # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
-    nr_samples = torch.arange(1000)
-    classes_indexes = nr_samples.repeat_interleave(subset_dim)
-    class_labels = np.array([imagenet_classes[i] for i in classes_indexes])
+    class_labels = np.array([classes[i] for i in labels])
     
     print(f"Number of elements with {text} results between the two reconstruction methods: {len(class_labels[indexes_1])}")
     # Track occurrences
@@ -1270,6 +1299,6 @@ def print_wrong_elements(indexes_1, subset_dim, text="wrong"):
     return sorted_output
 
 
-def print_correct_elements(indexes_1, text="correct"):
-    return print_wrong_elements(~indexes_1, text)
+def print_correct_elements(indexes_1, labels, classes, text="correct"):
+    return print_wrong_elements(~indexes_1, labels, classes, text)
 
