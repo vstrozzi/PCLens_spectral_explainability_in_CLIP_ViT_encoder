@@ -49,7 +49,7 @@ def get_args_parser():
         help="text dataset used for the explanations",
     )
 
-    parser.add_argument("--top_k", type=int, default=20, help="Nr of PCs of the query system")
+    parser.add_argument("--top_k", type=int, default=50, help="Nr of PCs of the query system")
     parser.add_argument("--max_approx", type=float, default=1, help="Max approx for the reconstruction")
 
     return parser
