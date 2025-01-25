@@ -150,7 +150,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        ratio=0.5,
+        ratio=1
         )
     
         top_k_entries_other  = get_remaining_pcs(data, top_k_entries)
@@ -164,7 +164,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        ratio=0.5
+        ratio=1
         )
 
         # Normalize
