@@ -75,7 +75,7 @@ def main(args):
     if args.dataset == "imagenet":
         ds = ImageNet(root=args.data_path, split="val", transform=preprocess)
     elif args.dataset == "binary_waterbirds":
-        ds = BinaryWaterbirds(root=args.data_path, split="test", transform=preprocess)
+        ds = BinaryWaterbirds(root=args.data_path+"waterbird_complete95_forest2water2/", split="test", transform=preprocess)
     elif args.dataset == "CIFAR100":
         ds = CIFAR100(
             root=args.data_path, download=True, train=False, transform=preprocess

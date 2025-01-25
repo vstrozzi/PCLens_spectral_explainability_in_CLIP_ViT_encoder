@@ -404,7 +404,7 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     # Put initial contribution
     prev_layers = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, :, :].sum(axis=(1, 2))
     reconstructed_embeddings = torch.zeros_like(prev_layers)
-    reconstruct_embeddings_mean_ablate = prev_layers
+    reconstruct_embeddings_mean_ablate = torch.zeros_like(prev_layers)
     # Iterate over each principal component of interest and keep the contribution of their head, sum mean ablation for all the other
     prev_layer, prev_head = nr_layer_not_anal, 0
     for layer, head, princ_comps, s, vh, mean_values in grouped_data:
@@ -414,7 +414,7 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
             mask = ((attns[:, layer, head, :]) @ vh.T)
             reconstructed_embeddings += mask @ vh
 
-            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask = torch.zeros((1, vh.shape[0]))
             mask = ((- mean_values) @ vh.T)
             reconstruct_embeddings_mean_ablate += mask @ vh
         else:
@@ -422,7 +422,7 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
             mask[:, princ_comps] = ((attns[:, layer, head, :]) @ vh.T)[:, princ_comps]
             reconstructed_embeddings += mask @ vh
 
-            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
+            mask = torch.zeros((1, vh.shape[0]))
             mask[:, princ_comps] = ((- mean_values) @ vh.T)[:, princ_comps]
             reconstruct_embeddings_mean_ablate += mask @ vh
 
@@ -432,7 +432,7 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
         while prev_layer != layer or prev_head != head: 
             # Add mean contribution of all the data not in the pcs
             if ablation:
-                reconstruct_embeddings_mean_ablate +=  torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
+                reconstruct_embeddings_mean_ablate += torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
             else:
                 reconstructed_embeddings += attns[:, prev_layer, prev_head, :]
 
@@ -452,8 +452,10 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     
     # Amplification ==-1 keep original ratio
     if ratio == -1:
-        reconstructed_embeddings += reconstruct_embeddings_mean_ablate
+        reconstructed_embeddings += reconstruct_embeddings_mean_ablate + prev_layers
     else:
+        # Consider as a whole prev layers and mean ablation
+        reconstruct_embeddings_mean_ablate += prev_layers
         norm_rec = reconstructed_embeddings.norm(dim=-1)
         norm_rec_mean = reconstruct_embeddings_mean_ablate.norm(dim=-1)
         norm_ratio = torch.mean(norm_rec_mean / norm_rec)
@@ -1069,7 +1071,7 @@ def visualize_principal_component(
     if dataset == "imagenet":
         ds = ImageNet(root=data_path+"imagenet/", split="val", transform=transform)
     elif dataset == "binary_waterbirds":
-        ds = BinaryWaterbirds(root=data_path, split="test", transform=transform)
+        ds = BinaryWaterbirds(root=data_path+"waterbird_complete95_forest2water2/", split="test", transform=transform)
     elif dataset == "CIFAR100":
         ds = CIFAR100(
             root=data_path, download=True, train=False, transform=transform

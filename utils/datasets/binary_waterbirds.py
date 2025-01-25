@@ -34,6 +34,7 @@ class BinaryWaterbirds(VisionDataset):
         split = {'test': 2, 'valid': 1, 'train': 0}[split]
         csv = csv[csv['split'] == split]
         self.samples = [(os.path.join(root, csv.iloc[i]['img_filename']), csv.iloc[i]['y']) for i in range(len(csv))]
+        self.classes = list(set([x[1] for x in self.samples])) 
     
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
