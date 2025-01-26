@@ -456,18 +456,18 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     else:
         # Consider as a whole prev layers and mean ablation
         reconstruct_embeddings_mean_ablate += prev_layers
-        norm_rec = reconstructed_embeddings.norm(dim=-1)
-        norm_rec_mean = reconstruct_embeddings_mean_ablate.norm(dim=-1)
-        norm_mean = embeddings.norm(dim=-1).item()
-        norm_ratio = torch.mean(norm_rec_mean / norm_rec)
+        norm_rec = reconstructed_embeddings.norm(dim=-1, keepdim=True)
+        norm_rec_mean = reconstruct_embeddings_mean_ablate.norm(dim=-1, keepdim=True)
+        norm_mean = torch.mean(embeddings, axis = 0).norm(dim = -1).item()
         reconstructed_embeddings *= norm_mean / norm_rec * ratio
-        reconstructed_embeddings += reconstruct_embeddings_mean_ablate*norm_rec_mean / norm_rec (1-ratio)
+        reconstructed_embeddings += reconstruct_embeddings_mean_ablate*norm_mean / norm_rec_mean * (1-ratio)
+        
     # No pcs selected, just return whole mean ablation
     if data_pcs == []:
         reconstructed_embeddings = mlps.sum(axis=1) + torch.mean(attns.sum(axis=(2))[:, :], axis=0).sum(0)
 
-
     return reconstructed_embeddings
+
 
 @torch.no_grad()
 def reconstruct_all_embeddings_mean_ablation_heads(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated):
