@@ -33,6 +33,10 @@ class PrincipalComponentRecord:
     vh: torch.Tensor
     rank: int
 
+# Fix seeds
+torch.manual_seed(0)
+np.random.seed(0)
+random.seed(0)
 @torch.no_grad()
 def get_data(attention_dataset, min_princ_comp=-1, skip_final=False):
     """
@@ -531,7 +535,7 @@ def random_pcs(data, nr_pcs):
     # Randomly select the principal components
     random_pcs = np.random.choice(data, nr_pcs, replace=False)
     return list(random_pcs.squeeze())
-    
+
 @torch.no_grad()
 def reconstruct_embeddings(data, embeddings, types, device="cpu", return_princ_comp=False, plot=False, means=[]):
     """
@@ -1216,7 +1220,27 @@ def reconstruct_embeddings_proj(data, embeddings, types, device="cpu",return_pri
 
     return reconstructed_embeddings, data
 
+def test_waterbird_preds(preds, labels, groups):
+    # Count of water, water; water, land; land, water; land, land
+    correct_count = [[0, 0], [0, 0]]
+    tot_count = [[0, 0], [0, 0]]
 
+    for pred, label, group in zip(preds, labels, groups):
+        # Increment the total count for the group
+        tot_count[label][group] += 1
+
+        # Increment the correct count if the prediction is correct
+        if pred == label:
+            correct_count[label][group] += 1
+
+    print("Accuracy landbird with landbird background:", 100* correct_count[0][0] / tot_count[0][0])
+    print("Accuracy landbird with water background:", 100* correct_count[0][1] / tot_count[0][1])
+    print("Accuracy waterbird with land background:", 100* correct_count[1][0] / tot_count[1][0])
+    print("Accuracy waterbird with water background:", 100* correct_count[1][1] / tot_count[1][1])
+
+    print("Totoal accuracy landbird:", 100* (correct_count[0][0] + correct_count[0][1]) / (tot_count[0][0] + tot_count[0][1]))
+    print("Totoal accuracy waterbird:", 100* (correct_count[1][0] + correct_count[1][1]) / (tot_count[1][0] + tot_count[1][1]))
+    print("Total accuracy overall", 100* (correct_count[0][0] + correct_count[0][1] + correct_count[1][0] + correct_count[1][1]) / (tot_count[0][0] + tot_count[0][1] + tot_count[1][0] + tot_count[1][1]))
 
 def test_accuracy(prediction, labels, label="Classifier"):
     """
@@ -1287,20 +1311,18 @@ def print_diff_elements(indexes_1, indexes_2, subset_dim):
     print(f"The different elements labels are: {sorted_output}")
 
 def print_wrong_elements(indexes_1, labels, classes, text="wrong"):
-    # TODO: Hardcoded for ImageNet
     # Retrieve the labels of the dataset. 
-    # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
-    class_labels = np.array([classes[i] for i in labels])
+    class_labels = classes
     
-    print(f"Number of elements with {text} results between the two reconstruction methods: {len(class_labels[indexes_1])}")
+    print(f"Number of elements with {text} results between the two reconstruction methods: {len(labels[indexes_1])}")
     # Track occurrences
     label_count = defaultdict(int)
 
     # Iterate through mask and labels
-    for idx, is_correct in enumerate(indexes_1):
-        if not is_correct:
-            label = class_labels[idx]
-            label_count[label] += 1
+    for idx, label in zip(indexes_1, labels):
+        if not idx:
+            class_label = class_labels[label]
+            label_count[class_label] += 1
 
     # Sort the set by nr_of_prev_occurrences in descending order
     sorted_output = sorted(label_count.items(), key=lambda x: x[1], reverse=True)
@@ -1312,4 +1334,5 @@ def print_wrong_elements(indexes_1, labels, classes, text="wrong"):
 
 def print_correct_elements(indexes_1, labels, classes, text="correct"):
     return print_wrong_elements(~indexes_1, labels, classes, text)
+
 
