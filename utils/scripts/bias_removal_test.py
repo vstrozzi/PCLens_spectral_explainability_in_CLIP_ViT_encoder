@@ -49,7 +49,7 @@ def get_args_parser():
         help="text dataset used for the explanations",
     )
 
-    parser.add_argument("--top_k", type=int, default=80, help="Nr of PCs of the query system")
+    parser.add_argument("--top_k", type=int, default=10, help="Nr of PCs of the query system")
     parser.add_argument("--max_approx", type=float, default=1, help="Max approx for the reconstruction")
 
     return parser
@@ -148,7 +148,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        ratio=0.5
+        ratio=-1
         )
     
         top_k_entries_other  = get_remaining_pcs(data, top_k_entries)
@@ -162,7 +162,7 @@ def main(args):
         nr_layers_,
         nr_heads_,
         num_last_layers,
-        ratio=0.5
+        ratio=-1
         )
 
         # Normalize

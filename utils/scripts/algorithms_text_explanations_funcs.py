@@ -524,6 +524,14 @@ def reconstruct_all_embeddings_mean_ablation_heads(data_pcs, mlps, attns, embedd
 
     return reconstructed_embeddings
 
+def random_pcs(data, nr_pcs):
+    """
+    Randomly select principal components from the data.
+    """
+    # Randomly select the principal components
+    random_pcs = np.random.choice(data, nr_pcs, replace=False)
+    return list(random_pcs.squeeze())
+    
 @torch.no_grad()
 def reconstruct_embeddings(data, embeddings, types, device="cpu", return_princ_comp=False, plot=False, means=[]):
     """
