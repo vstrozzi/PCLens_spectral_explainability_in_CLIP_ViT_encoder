@@ -352,7 +352,7 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
-def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated, ratio=-1, ablation=True):
+def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated, ratio=-1, mean_ablate_all=False, ablation=True):
     """
     Reconstruct the embeddings using the contribution of only the heads with PCs in data.
     Parameters:
@@ -456,7 +456,11 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     
     # Amplification ==-1 keep original ratio
     if ratio == -1:
-        reconstructed_embeddings += torch.mean(prev_layers + reconstruct_embeddings_mean_ablate, dim=0)
+        # If we want to mean ablate all previous values
+        if mean_ablate_all:
+            reconstructed_embeddings += torch.mean(prev_layers + reconstruct_embeddings_mean_ablate, dim=0)
+        else:
+            reconstructed_embeddings += prev_layers + reconstruct_embeddings_mean_ablate
     else:
         # Consider as a whole prev layers and mean ablation
         reconstruct_embeddings_mean_ablate += prev_layers
@@ -532,7 +536,6 @@ def random_pcs(data, nr_pcs):
     """
     Randomly select principal components from the data.
     """
-    # Randomly select the principal components
     random_pcs = np.random.choice(data, nr_pcs, replace=False)
     return list(random_pcs.squeeze())
 
@@ -688,16 +691,9 @@ def reconstruct_top_embedding(data, embedding, mean, type, max_reconstr_score, t
         track_h_l[key] += 1
 
         # Compute the current score:
-
         query_repres_norm = query_repres/query_repres.norm(dim=-1, keepdim=True)
         
         embedding_norm = embedding/embedding.norm(dim=-1, keepdim=True)
-        """ # Compute the current score: how well this partial reconstruction matches the original embedding
-        score = query_repres_norm @ embedding_norm.T
-        query_repres_norm = query_repres/query_repres.norm(dim=-1, keepdim=True)
-        query_repres_norm += mean 
-        query_repres_norm /= query_repres_norm.norm(dim=-1, keepdim=True)
-        embedding_norm = embedding/embedding.norm(dim=-1, keepdim=True) """
         # Compute the current score: how well this partial reconstruction matches the original embedding
         score = query_repres_norm @ embedding_norm.T
         #score = query_repres_norm @ (embedding + mean).T
@@ -1200,11 +1196,8 @@ def reconstruct_embeddings_proj(data, embeddings, types, device="cpu",return_pri
         # Recover princ comp
         all_pcs[count] = vh[princ_comp, :]
 
-    # Project in row space
-    # Reconstruct Embeddings
-
     # Perform SVD of data matrix
-    u, s, vh = torch.linalg.svd(all_pcs, full_matrices=False)
+    _, s, vh = torch.linalg.svd(all_pcs, full_matrices=False)
     # Total sum of singular values
     total_variance = torch.sum(s)
     # Cumulative sum of singular values
@@ -1215,7 +1208,7 @@ def reconstruct_embeddings_proj(data, embeddings, types, device="cpu",return_pri
     print(f"The rank of the matrix is {rank}")
     for i in range(len(embeddings)):
         # Derive masking
-        reconstructed_embeddings[i] = embeddings[i] @ vh.T @ vh #@ all_pcs.T @ torch.linalg.pinv(all_pcs @ all_pcs.T) @ all_pcs
+        reconstructed_embeddings[i] = embeddings[i] @ vh.T @ vh
 
 
     return reconstructed_embeddings, data
@@ -1241,6 +1234,8 @@ def test_waterbird_preds(preds, labels, groups):
     print("Totoal accuracy landbird:", 100* (correct_count[0][0] + correct_count[0][1]) / (tot_count[0][0] + tot_count[0][1]))
     print("Totoal accuracy waterbird:", 100* (correct_count[1][0] + correct_count[1][1]) / (tot_count[1][0] + tot_count[1][1]))
     print("Total accuracy overall", 100* (correct_count[0][0] + correct_count[0][1] + correct_count[1][0] + correct_count[1][1]) / (tot_count[0][0] + tot_count[0][1] + tot_count[1][0] + tot_count[1][1]))
+
+    return 100*min(correct_count[0][0] / tot_count[0][0], correct_count[0][1] / tot_count[0][1], correct_count[1][0] / tot_count[1][0], correct_count[1][1] / tot_count[1][1])
 
 def test_accuracy(prediction, labels, label="Classifier"):
     """

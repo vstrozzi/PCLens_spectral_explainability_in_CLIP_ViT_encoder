@@ -155,7 +155,7 @@ def main(args):
                 jsonl_file.write(json.dumps(json_object) + "\n")
 
         # Get total contribution of the model        
-        mean_ablated_and_replaced = mlps.sum(axis=1) + attns.sum(axis=(1, 2))
+        mean_ablated_and_replaced = mlps.sum(axis=1) + attns.sum(axis=(1, 2)) 
 
         # Compute another iteration of the selected algorithm for the final output
         _, json_info = select_algo(
