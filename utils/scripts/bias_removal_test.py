@@ -92,11 +92,16 @@ def main(args):
     ) as f:
         mlps = torch.tensor(np.load(f))  # [b, l+1, d]
 
-    num_last_layers = args.num_real_layer
+    num_last_layers_ = args.num_real_layer
 
     # Save important stuff
     nr_layers_ = attns.shape[1]
     nr_heads_ = attns.shape[2]
+    data = get_data(attention_dataset, skip_final=True)
+    mean_rank_ = 0
+    for entry in data:
+        mean_rank_ += entry["rank"]
+    mean_rank_ /= len(data)
 
     # Prepare to store results
     acc_baseline_list = []
@@ -113,128 +118,142 @@ def main(args):
     mean_final_images = torch.mean(final_embeddings_images, axis=0)
     mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
     labels_embeddings = classifier_.T
-    for c, label in enumerate(imagenet_classes):
-        
-        # Retrieve topic embedding
-        topic_emb = labels_embeddings[c:c+1, :]
-        # Mean center the embeddings
-        mean_final = mean_final_texts if query_text else mean_final_images
-        topic_emb_cent = topic_emb - mean_final
 
-        # Retrieve partial SVD/projection data
+    pcs_per_class_start = 1
+    pcs_per_class_end = int(nr_heads_*num_last_layers_*mean_rank_)
+    pcs_per_class_step = 10
+
+    # Center class embedding
+    sorted_data = []
+    classes_centered = labels_embeddings - mean_final_texts
+    for text_idx in range(classes_centered.shape[0]):
+        # Perform query system on entry
+        concept_i_centered = classes_centered[text_idx, :].unsqueeze(0)
+
         data = get_data(attention_dataset, -1, skip_final=True)
 
-        # Reconstruct embedding of the query
-        _, data = reconstruct_embeddings(
+        _, data_abs = reconstruct_embeddings(
             data, 
-            [topic_emb_cent], 
-            ["text" if query_text else "image"], 
-            device=device,
+            [concept_i_centered], 
+            ["text"], 
             return_princ_comp=True, 
             plot=False, 
-            means=[mean_final]
+            means=[mean_final_texts],
         )
 
-        # Sort the principal components by absolute correlation
-        data = sort_data_by(data, "correlation_princ_comp_abs", descending=True)
-        top_k_entries = top_data(data, top_k)
-
-        # Increase amplification
-        rec = reconstruct_all_embeddings_mean_ablation_pcs(
-        top_k_entries,
-        mlps,
-        attns, 
-        final_embeddings_images,
-        nr_layers_,
-        nr_heads_,
-        num_last_layers,
-        ratio=-1,
-        mean_ablate_all=False
-        )
+        # Extract relevant details from the top k entries
+        data_pcs = sort_data_by(data_abs, "correlation_princ_comp_abs", descending=True)
+        # Derive nr_pcs_per_class
+        sorted_data.append(data_pcs)
+        # Log
+        print(f"Class nr {text_idx} ({imagenet_classes[text_idx]}) is done")
+        if(text_idx == 2):
+            break
     
-        top_k_entries_other  = get_remaining_pcs(data, top_k_entries)
+    for pcs_per_class in range(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
+        print(f"Start with nr of k {pcs_per_class}")  # spacing
+        for c, label in enumerate(imagenet_classes):
+            
+            # Retrieve topic embedding
+            data_act = sorted_data[c]
+            top_k_entries = top_data(data_act, pcs_per_class)
 
-        # Diminish amplification
-        rec_proof = reconstruct_all_embeddings_mean_ablation_pcs(
-        top_k_entries_other,
-        mlps,
-        attns, 
-        final_embeddings_images,
-        nr_layers_,
-        nr_heads_,
-        num_last_layers,
-        ratio=-1,
-        mean_ablate_all=False
+            # Increase amplification
+            rec = reconstruct_all_embeddings_mean_ablation_pcs(
+            top_k_entries,
+            mlps,
+            attns, 
+            final_embeddings_images,
+            nr_layers_,
+            nr_heads_,
+            num_last_layers_,
+            ratio=-1,
+            mean_ablate_all=False
+            )
+        
+            top_k_entries_other  = get_remaining_pcs(data_act, top_k_entries)
+
+            # Diminish amplification
+            rec_proof = reconstruct_all_embeddings_mean_ablation_pcs(
+            top_k_entries_other,
+            mlps,
+            attns, 
+            final_embeddings_images,
+            nr_layers_,
+            nr_heads_,
+            num_last_layers_,
+            ratio=-1,
+            mean_ablate_all=False
+            )
+
+            # Normalize
+            rec_proof /= rec_proof.norm(dim=-1, keepdim=True)
+            rec /= rec.norm(dim=-1, keepdim=True)
+
+
+            # -------------------------
+            #  1) Baseline Accuracy
+            # -------------------------
+            baseline = final_embeddings_images
+            prediction = baseline @ classifier_
+            acc_base, indexes_approx_bas = test_accuracy(prediction, labels_, label="Baseline")
+            #print_tot_wrong_elements_label(indexes_approx_bas, label)
+            count_base = print_wrong_elements_label(indexes_approx_bas, label, subset_dim)
+            acc_baseline_list.append(float(acc_base))
+            count_baseline_list.append(int(count_base))
+
+            # -------------------------
+            #  2) Reconstruction Accuracy
+            # -------------------------
+            prediction = rec @ classifier_
+            acc_r, indexes_approx_rec = test_accuracy(prediction, labels_, label="Approximation with the reconstructed embeddings")
+            #print_tot_wrong_elements_label(indexes_approx_bas, label)
+            count_r = print_wrong_elements_label(indexes_approx_rec, label, subset_dim)
+            acc_rec_list.append(float(acc_r))
+            count_rec_list.append(int(count_r))
+
+            # -------------------------
+            #  3) "Bias Removal"/Final Accuracy
+            # -------------------------
+            prediction = rec_proof @ classifier_
+            acc_final, indexes_approx_final = test_accuracy(
+                prediction, 
+                labels_, 
+                label="Approximation with proof of concept"
+            )
+            #print_tot_wrong_elements_label(prediction, label)
+            count_final = print_wrong_elements_label(indexes_approx_final, label, subset_dim)
+            acc_bias_rem_list.append(float(acc_final))
+            count_bias_rem_list.append(int(count_final))
+            if c == 2:
+                break
+
+
+        # Once the loop over classes is done, prepare the result structure
+        results = {
+            "acc_baseline": acc_baseline_list,
+            "count_baseline": count_baseline_list,
+            "acc_rec": acc_rec_list,
+            "count_rec": count_rec_list,
+            "acc_bias_rem": acc_bias_rem_list,
+            "count_bias_rem": count_bias_rem_list,
+            "top_k": pcs_per_class,
+            "subset_dim": args.subset_dim,
+            "seed": args.seed,
+            "approx": args.max_approx
+        }
+
+        # Write out to a .jsonl file with a meaningful name
+        out_filename = (
+            f"{args.dataset}_bias_test_{args.dataset_text}_{args.model}_algo_svd_data_approx_seed_{args.seed}_top{pcs_per_class}.jsonl"
         )
+        out_path = os.path.join(args.output_dir, out_filename)
 
-        # Normalize
-        rec_proof /= rec_proof.norm(dim=-1, keepdim=True)
-        rec /= rec.norm(dim=-1, keepdim=True)
+        # Write the results as a single JSON object in one line
+        with open(out_path, "w") as f:
+            f.write(json.dumps(results) + "\n")
 
-
-        # -------------------------
-        #  1) Baseline Accuracy
-        # -------------------------
-        baseline = final_embeddings_images
-        prediction = baseline @ classifier_
-        acc_base, indexes_approx_bas = test_accuracy(prediction, labels_, label="Baseline")
-        print_tot_wrong_elements_label(prediction, label)
-        count_base = print_wrong_elements_label(indexes_approx_bas, label, subset_dim)
-        acc_baseline_list.append(float(acc_base))
-        count_baseline_list.append(int(count_base))
-
-        # -------------------------
-        #  2) Reconstruction Accuracy
-        # -------------------------
-        prediction = rec @ classifier_
-        acc_r, indexes_approx_rec = test_accuracy(prediction, labels_, label="Approximation with the reconstructed embeddings")
-        print_tot_wrong_elements_label(prediction, label)
-        count_r = print_wrong_elements_label(indexes_approx_rec, label, subset_dim)
-        acc_rec_list.append(float(acc_r))
-        count_rec_list.append(int(count_r))
-
-        # -------------------------
-        #  3) "Bias Removal"/Final Accuracy
-        # -------------------------
-        prediction = rec_proof @ classifier_
-        acc_final, indexes_approx_final = test_accuracy(
-            prediction, 
-            labels_, 
-            label="Approximation with proof of concept"
-        )
-        print_tot_wrong_elements_label(prediction, label)
-        count_final = print_wrong_elements_label(indexes_approx_final, label, subset_dim)
-        acc_bias_rem_list.append(float(acc_final))
-        count_bias_rem_list.append(int(count_final))
-
-        print()  # spacing
-
-
-    # Once the loop over classes is done, prepare the result structure
-    results = {
-        "acc_baseline": acc_baseline_list,
-        "count_baseline": count_baseline_list,
-        "acc_rec": acc_rec_list,
-        "count_rec": count_rec_list,
-        "acc_bias_rem": acc_bias_rem_list,
-        "count_bias_rem": count_bias_rem_list,
-        "top_k": args.top_k,
-        "subset_dim": args.subset_dim,
-        "seed": args.seed,
-        "approx": args.max_approx
-    }
-
-    # Write out to a .jsonl file with a meaningful name
-    out_filename = (
-        f"{args.dataset}_bias_test_{args.dataset_text}_{args.model}_algo_svd_data_approx_seed_{args.seed}_top{top_k}.jsonl"
-    )
-    out_path = os.path.join(args.output_dir, out_filename)
-
-    # Write the results as a single JSON object in one line
-    with open(out_path, "w") as f:
-        f.write(json.dumps(results) + "\n")
-
-    print(f"Results saved to {out_path}")
+        print(f"Results saved to {out_path}")
 
 
 if __name__ == "__main__":

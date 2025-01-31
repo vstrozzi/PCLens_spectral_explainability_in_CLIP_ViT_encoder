@@ -1223,7 +1223,7 @@ def test_waterbird_preds(preds, labels, groups):
         tot_count[label][group] += 1
 
         # Increment the correct count if the prediction is correct
-        if pred == label:
+        if pred:
             correct_count[label][group] += 1
 
     print("Accuracy landbird with landbird background:", 100* correct_count[0][0] / tot_count[0][0])
@@ -1250,7 +1250,6 @@ def print_wrong_elements_label(indexes_1, label, subset_dim, text="wrong"):
     # TODO: Hardcoded for ImageNet
     # Retrieve the labels of the dataset. 
     # This is hardcoded for ImageNet where nr_classes is the number of classes (usually 1000).
-    nr_samples = torch.arange(1000)    
     idx_label = [idx for idx, x in enumerate(imagenet_classes) if x == label][0]
     count = 0
     for idx in range(idx_label*subset_dim, idx_label*subset_dim + subset_dim):
@@ -1258,7 +1257,7 @@ def print_wrong_elements_label(indexes_1, label, subset_dim, text="wrong"):
             count += 1
         
     # Print the result
-    print(f"The {label} wrong elements labels are: {count}")
+    print(f"The {label} {text} elements labels are: {count}")
 
     return count
 
