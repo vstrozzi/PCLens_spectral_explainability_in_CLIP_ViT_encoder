@@ -120,7 +120,7 @@ def main(args):
     labels_embeddings = classifier_.T
 
     pcs_per_class_start = 1
-    pcs_per_class_end = int(nr_heads_*num_last_layers_*mean_rank_)
+    pcs_per_class_end = 2500
     pcs_per_class_step = 10
 
     # Center class embedding
