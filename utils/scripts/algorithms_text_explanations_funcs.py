@@ -352,7 +352,7 @@ def map_data(data, lbd_func=None):
     return [lbd_func(x) for x in data]
 
 @torch.no_grad()
-def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated, ratio=-1, mean_ablate_all=False, ablation=True):
+def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, attns_dataset, tot_nr_layers, tot_nr_heads, nr_mean_ablated, ratio=-1, mean_ablate_all=False, ablation=True, return_attention=False):
     """
     Reconstruct the embeddings using the contribution of only the heads with PCs in data.
     Parameters:
@@ -370,10 +370,10 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     - data: Data updated with principal components of the given embeddings (if return_princ_comp is True).
     """
 
-    if len(embeddings) == 0:
-        assert False, "No embeddings to reconstruct or different lengths."
+    embeddings = mlps.sum(axis=1) + attns.sum(axis=(1, 2))
 
- 
+    # Clone attns
+    attns = attns.clone()
     # Sort content of data_pcs based on the natural order of pcs
     heads_to_keep = sorted(
     list(
@@ -406,39 +406,50 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
     # Initialize the reconstructed embeddings
     nr_layer_not_anal = tot_nr_layers - nr_mean_ablated
     # Put initial contribution
-    prev_layers = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, :, :].sum(axis=(1, 2))
+    prev_layers = mlps.sum(axis=1) + attns[:, 0:nr_layer_not_anal, ...].sum(axis=(1, 2))
     reconstructed_embeddings = torch.zeros_like(prev_layers)
     reconstruct_embeddings_mean_ablate = torch.zeros_like(prev_layers)
     # Iterate over each principal component of interest and keep the contribution of their head, sum mean ablation for all the other
     prev_layer, prev_head = nr_layer_not_anal, 0
     for layer, head, princ_comps, s, vh, mean_values in grouped_data:
         # Get contribution for our principal component on mean centered data
+        mask = torch.zeros((reconstructed_embeddings.shape[0], vh.shape[0]))
+        mask_mean = torch.zeros((1, vh.shape[0]))
+        if return_attention:
+            mask = torch.zeros((reconstructed_embeddings.shape[0], attns.shape[3], vh.shape[0]))
+            mask_mean = torch.zeros((1, attns.shape[3], vh.shape[0]))
+            nr_patches = attns.shape[3]
+
         if not ablation:
-            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
-            mask = ((attns[:, layer, head, :]) @ vh.T)
+            mask = ((attns[:, prev_layer, prev_head, ...]) @ vh.T)
             reconstructed_embeddings += mask @ vh
 
-            mask = torch.zeros((1, vh.shape[0]))
-            mask = ((- mean_values) @ vh.T)
-            reconstruct_embeddings_mean_ablate += mask @ vh
+            mask_mean = ((- mean_values) @ vh.T)
+            reconstruct_embeddings_mean_ablate += mask_mean @ vh
+
         else:
-            mask = torch.zeros((embeddings.shape[0], vh.shape[0]))
-            mask[:, princ_comps] = ((attns[:, layer, head, :]) @ vh.T)[:, princ_comps]
+            mask[..., princ_comps] = ((attns[:, prev_layer, prev_head, ...]) @ vh.T)[..., princ_comps]
             reconstructed_embeddings += mask @ vh
+    
+            mask_mean[..., princ_comps] = ((- torch.mean(attns_dataset[:, prev_layer, prev_head, ...], dim=0).unsqueeze(0)) @ vh.T)[..., princ_comps]
+            reconstruct_embeddings_mean_ablate += mask_mean @ vh
 
-            mask = torch.zeros((1, vh.shape[0]))
-            mask[:, princ_comps] = ((- torch.mean(attns[:, prev_layer, prev_head, :], dim=0).unsqueeze(0)) @ vh.T)[:, princ_comps]
-            reconstruct_embeddings_mean_ablate += mask @ vh
+        if return_attention:
+            tmp= mask @ vh + (mask_mean @ vh)/nr_patches + torch.mean(attns_dataset[:, prev_layer, prev_head, ...], dim=0)/nr_patches
+            attns[:, layer, head, :] = tmp
 
-        reconstruct_embeddings_mean_ablate += torch.mean(attns[:, prev_layer, prev_head, :], dim=0)
+
+        reconstruct_embeddings_mean_ablate += torch.mean(attns_dataset[:, prev_layer, prev_head, ...], dim=0)
 
         # Add mean ablation for whole heads when not used 
         while prev_layer != layer or prev_head != head: 
             # Add mean contribution of all the data not in the pcs
             if ablation:
-                reconstruct_embeddings_mean_ablate += torch.mean(attns[:, prev_layer, prev_head, :], axis=0) #[b, l, h, d]
+                reconstruct_embeddings_mean_ablate += torch.mean(attns_dataset[:, prev_layer, prev_head, ...], axis=0) #[b, l, h, d]
+                if return_attention:
+                    attns[:, prev_layer, prev_head, :] = 0#torch.mean(attns_dataset[:, prev_layer, prev_head, ...], axis=0)/nr_patches
             else:
-                reconstructed_embeddings += attns[:, prev_layer, prev_head, :]
+                reconstructed_embeddings += attns[:, prev_layer, prev_head, ...]
 
             if prev_head == tot_nr_heads - 1:
                 prev_head = 0
@@ -472,10 +483,12 @@ def reconstruct_all_embeddings_mean_ablation_pcs(data_pcs, mlps, attns, embeddin
         
     # No pcs selected, just return whole mean ablation
     if data_pcs == []:
-        reconstructed_embeddings = mlps.sum(axis=1) + torch.mean(attns.sum(axis=(2))[:, :], axis=0).sum(0)
-
-    return reconstructed_embeddings
-
+        reconstructed_embeddings = mlps.sum(axis=1) + torch.mean(attns_dataset.sum(axis=(2))[:, :], axis=0).sum(0)
+    
+    if return_attention:
+        return attns
+    else:
+        return reconstructed_embeddings
 
 @torch.no_grad()
 def reconstruct_all_embeddings_mean_ablation_heads(data_pcs, mlps, attns, embeddings, tot_nr_layers, tot_nr_heads, nr_mean_ablated):
