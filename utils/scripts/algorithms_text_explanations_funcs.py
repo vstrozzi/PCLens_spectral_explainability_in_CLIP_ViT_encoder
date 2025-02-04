@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import List
 import pandas as pd
 from tabulate import tabulate
+import matplotlib.lines as mlines
 import torch
 import numpy as np
 from torchvision.datasets import ImageNet, CIFAR10, CIFAR100, ImageFolder
@@ -1343,3 +1344,764 @@ def print_correct_elements(indexes_1, labels, classes, text="correct"):
     return print_wrong_elements(~indexes_1, labels, classes, text)
 
 
+def save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs, 
+                    baseline_worst, baseline_acc, model_name, concept_nr, classes_):
+    # Convert any numpy arrays to lists, if needed:
+    def to_serializable(x):
+        return x.tolist() if isinstance(x, np.ndarray) else x
+
+    data = {
+        "worst_class_acc": to_serializable(worst_class_acc),
+        "total_accuracy": to_serializable(total_accuracy),
+        "worst_class_nr_pcs": to_serializable(worst_class_nr_pcs),
+        "baseline_worst": baseline_worst,
+        "baseline_acc": baseline_acc,
+        "model_name": model_name,
+        "concept_nr": concept_nr,
+        "classes_": classes_  # Assumes classes_ is already JSON-serializable (e.g., a list)
+    }
+
+    # Create a meaningful filename using model_name and concept_nr
+    file_name = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+    with open(file_name, "w") as f:
+        json.dump(data, f, indent=4)
+
+    print(f"Parameters saved to '{file_name}'.")
+
+# -----------------------------------------------------------------------------
+# Function to load parameters from a JSON file
+# -----------------------------------------------------------------------------
+def load_parameters(file_name):
+    with open(file_name, "r") as f:
+        data = json.load(f)
+    return data
+
+
+def plot_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs, baseline_worst, baseline_acc, model_name, concept_nr, classes_):
+    # ---------------------------------------
+    # PLOTTING SECTION for WORST-CLASS ACCURACY
+    # ---------------------------------------
+    # -------------------------------
+    # COMPUTE PARETO OPTIMAL CANDIDATE
+    # -------------------------------
+    # A candidate is one where both total accuracy and worst-class accuracy exceed their baselines.
+    # Among these, we select the one with the highest worst-class accuracy.
+    # If there is a tie, we pick the candidate with the higher total accuracy.
+    total_accuracy_arr = np.array(total_accuracy)
+    worst_class_acc_arr = np.array(worst_class_acc)
+    worst_class_nr_pcs_arr = np.array(worst_class_nr_pcs)
+
+    candidates_mask = (total_accuracy_arr > baseline_acc) & (worst_class_acc_arr > baseline_worst)
+    if np.any(candidates_mask):
+        candidate_indices = np.where(candidates_mask)[0]
+        best_idx = candidate_indices[0]
+        for idx in candidate_indices:
+            if worst_class_acc_arr[idx] > worst_class_acc_arr[best_idx]:
+                best_idx = idx
+            elif worst_class_acc_arr[idx] == worst_class_acc_arr[best_idx] and total_accuracy_arr[idx] > total_accuracy_arr[best_idx]:
+                best_idx = idx
+        pareto_pcs = worst_class_nr_pcs_arr[best_idx]
+        pareto_worst = worst_class_acc_arr[best_idx]
+        pareto_total = total_accuracy_arr[best_idx]
+    else:
+        pareto_pcs = None
+
+    # -------------------------------
+    # PLOTTING SECTION for WORST-CLASS ACCURACY
+    # -------------------------------
+    # (Only applicable if classes_ == waterbird_classes)
+    if classes_ == waterbird_classes:
+        # Recompute max values for worst-class accuracy for clarity
+        max_worst_acc = max(worst_class_acc)
+        pcs_per_class_max_worst_acc = worst_class_nr_pcs[np.argmax(worst_class_acc)]
+
+        plt.figure(figsize=(6, 4))
+        # Plot the worst-class accuracy curve
+        plt.plot(
+            worst_class_nr_pcs, worst_class_acc,
+            color='blue',
+            linestyle='-',
+            label='Worst-Class Accuracy'
+        )
+        # Plot baseline worst-class accuracy
+        plt.axhline(
+            y=baseline_worst,
+            color='gray',
+            linestyle='--',
+            linewidth=2,
+            label=f'Baseline Worst-Class Acc = {baseline_worst:.2f}'
+        )
+        # Highlight the maximum worst-class accuracy with horizontal and vertical lines
+        plt.axhline(
+            y=max_worst_acc,
+            color='blue',
+            linestyle=':',
+            linewidth=2
+        )
+        plt.axvline(
+            x=pcs_per_class_max_worst_acc,
+            color='blue',
+            linestyle=':',
+            linewidth=2
+        )
+        # --- Add Vertical Line for Pareto Optimal Solution (if found) ---
+        if pareto_pcs is not None:
+            plt.axvline(
+                x=pareto_pcs,
+                color='green',
+                linestyle='--',
+                linewidth=2
+            )
+            pareto_line_legend = mlines.Line2D(
+                [],
+                [],
+                color='green',
+                linestyle='--',
+                linewidth=2,
+                label=f'Pareto Optimal: Worst Acc = {pareto_worst:.2f}, Total Acc = {pareto_total:.2f} at PCs={pareto_pcs}'
+            )
+        else:
+            pareto_line_legend = None
+
+        # Custom legend entry for max worst-class accuracy
+        max_line_legend = mlines.Line2D(
+            [],
+            [],
+            color='blue',
+            linestyle=':',
+            linewidth=2,
+            label=f'Max Worst-Class Acc = {max_worst_acc:.2f} at PCs={pcs_per_class_max_worst_acc}\n(Worst total accuracy is {total_accuracy[np.argmax(worst_class_acc)]:.2f})'
+        )
+
+        # Get current legend handles and append our custom entries
+        handles, labels = plt.gca().get_legend_handles_labels()
+        handles.append(max_line_legend)
+        labels.append(max_line_legend.get_label())
+        if pareto_line_legend is not None:
+            handles.append(pareto_line_legend)
+            labels.append(pareto_line_legend.get_label())
+
+        plt.xlabel('Number of PCs per Class')
+        plt.ylabel('Worst Accuracy')
+        plt.title('Worst-Class Accuracy vs. Number of PCs per Class')
+        plt.grid(True)
+        plt.legend(handles, labels)
+        plt.tight_layout()
+        plt.savefig(f"plt_1worst_{model_name}.pdf", bbox_inches='tight', format='pdf')
+        plt.show()
+
+        print(f"Max worst accuracy of {max_worst_acc:.2f} found at {pcs_per_class_max_worst_acc} PCs/class.")
+        if pareto_pcs is not None:
+            print(f"Pareto optimal solution at {pareto_pcs} PCs/class with Worst Acc = {pareto_worst:.2f} and Total Acc = {pareto_total:.2f}.")
+
+    # -------------------------------
+    # PLOTTING SECTION for TOTAL ACCURACY
+    # -------------------------------
+    # Compute max total accuracy details
+    max_total_acc = max(total_accuracy)
+    pcs_for_max_total_acc = worst_class_nr_pcs[np.argmax(total_accuracy)]
+
+    plt.figure(figsize=(6, 4))
+    # Plot the total accuracy curve
+    plt.plot(
+        worst_class_nr_pcs, total_accuracy,
+        linestyle='-', color='orange',
+        label='Total Accuracy'
+    )
+    # Plot baseline total accuracy
+    plt.axhline(
+        y=baseline_acc,
+        color='gray',
+        linestyle='--',
+        linewidth=2,
+        label=f'Baseline Total Acc = {baseline_acc:.2f}'
+    )
+    # Highlight the maximum total accuracy with horizontal and vertical lines
+    plt.axhline(
+        y=max_total_acc,
+        color='orange',
+        linestyle=':',
+        linewidth=2
+    )
+    plt.axvline(
+        x=pcs_for_max_total_acc,
+        color='orange',
+        linestyle=':',
+        linewidth=2
+    )
+    # --- Add Vertical Line for Pareto Optimal Solution (if found) ---
+    if pareto_pcs is not None:
+        plt.axvline(
+            x=pareto_pcs,
+            color='green',
+            linestyle='--',
+            linewidth=2
+        )
+        pareto_line_legend_2 = mlines.Line2D(
+            [],
+            [],
+            color='green',
+            linestyle='--',
+            linewidth=2,
+            label=f'Pareto Optimal: Worst Acc = {pareto_worst:.2f}, Total Acc = {pareto_total:.2f} at PCs={pareto_pcs}'
+        )
+    else:
+        pareto_line_legend_2 = None
+
+    # Custom legend entry for max total accuracy
+    max_line_legend_2 = mlines.Line2D(
+        [],
+        [],
+        color='orange',
+        linestyle=':',
+        linewidth=2,
+        label=f'Max Total Acc = {max_total_acc:.2f} at PCs={pcs_for_max_total_acc}\n(Worst class accuracy is {worst_class_acc[np.argmax(total_accuracy)]:.2f})'
+    )
+
+    handles2, labels2 = plt.gca().get_legend_handles_labels()
+    handles2.append(max_line_legend_2)
+    labels2.append(max_line_legend_2.get_label())
+    if pareto_line_legend_2 is not None:
+        handles2.append(pareto_line_legend_2)
+        labels2.append(pareto_line_legend_2.get_label())
+
+    plt.xlabel('Number of PCs per Class')
+    plt.ylabel('Total Accuracy (Avg)')
+    plt.title('Total Accuracy vs. Number of PCs per Class')
+    plt.grid(True)
+    plt.legend(handles2, labels2)
+    plt.tight_layout()
+    plt.savefig(f"plt_1_acc_{model_name}.pdf", bbox_inches='tight', format='pdf')
+    plt.show()
+
+    print(f"Max total accuracy of {max_total_acc:.2f} found at {pcs_for_max_total_acc}")
+
+
+def proof_concept_1_pcs_all(classifier_, attns_, mlps_, labels_, classes_, model_name, background_groups_, final_embeddings_texts, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, pcs_per_class_start=1, pcs_per_class_end=2000, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):   
+    # Embeddings classes
+    class_embeddings = classifier_.T  # M x D
+    # Baseline accuracy computation:
+    baseline = attns_.sum(axis=(1, 2)) + mlps_.sum(axis=1)
+    baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
+    print_correct_elements(idxs, labels_, classes_)  
+
+    if classes_ == waterbird_classes:
+        baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+
+    # Using the knwoledge of which class are we predicting wrongly, give more or less weight to pcs per class
+    # Reconstruct embeddings for each class label
+
+    # Get mean of data and texts
+    mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
+
+    classes_centered = class_embeddings - mean_final_texts.unsqueeze(0)
+
+    sorted_data = []
+    for text_idx in range(classes_centered.shape[0]):
+        # Perform query system on entry
+        concept_i_centered = classes_centered[text_idx, :].unsqueeze(0)
+
+        data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+
+        _, data_abs = reconstruct_embeddings(
+            data, 
+            [concept_i_centered], 
+            ["text"], 
+            return_princ_comp=True, 
+            plot=False, 
+            means=[mean_final_texts],
+        )
+
+        # Extract relevant details from the top k entries
+        data_pcs = sort_data_by(data_abs, "correlation_princ_comp_abs", descending=True)
+        # Derive nr_pcs_per_class
+        sorted_data.append(data_pcs)
+
+    max_worst_acc = 0
+
+    worst_class_acc = []
+    worst_class_nr_pcs = []
+
+    total_accuracy = []  # Will store the average accuracy across all text_idx for each pcs_per_class
+
+    for pcs_per_class in range(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
+        entries = []
+
+        # Collect top_k_entries for each concept
+        for text_idx in range(classes_centered.shape[0]):
+            # Retrieve data
+            data_pcs = sorted_data[text_idx]
+            top_k_entries = top_data(data_pcs, pcs_per_class)
+            print(f"Currently processing label {text_idx} with nr_pcs_per_class: {pcs_per_class}")
+            entries += top_k_entries
+
+        # Remove duplicates
+        entries_set = []
+        entries_meta = []
+        for entry in entries:
+            layer = entry["layer"]
+            head = entry["head"]
+            princ_comp = entry["princ_comp"]
+            if (layer, head, princ_comp) not in entries_meta:
+                entries_meta.append((layer, head, princ_comp))
+                entries_set.append(entry)
+
+        print(f"Total number of unique entries: {len(entries_set)}")
+
+        # If `random` is True, randomly pick PCs instead of the actual top_k
+        if random:
+            data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+            entries_set = random_pcs(data, pcs_per_class * len(classes_))
+
+        # Reconstruct final_embeddings_images
+        reconstructed_images = reconstruct_all_embeddings_mean_ablation_pcs(
+            entries_set,
+            mlps_,
+            attns_,
+            attns_,
+            nr_layers_,
+            nr_heads_,
+            num_last_layers_,
+            ratio=-1,
+            mean_ablate_all=False
+        )
+
+        reconstructed_images /= reconstructed_images.norm(dim=-1, keepdim=True)
+        predictions = reconstructed_images @ classifier_
+
+        # Evaluate across all text_idx
+        # (If you have different labels per text_idx, adapt accordingly.)
+        # For simplicity, assume `test_accuracy` returns (acc, idxs) for the entire set.
+        acc, idxs = test_accuracy(predictions, labels_, label="All classes combined")
+        total_accuracy.append(acc)
+
+        # If you need to evaluate `acc` separately for each text_idx, do so in the loop above.
+        # Then store the average or final result below.
+
+        # You might also be printing correctness here:
+        print_correct_elements(idxs, labels_, classes_)
+
+        # Worst-class accuracy for Waterbirds, if applicable
+        if classes_ == waterbird_classes:
+            curr_worst_acc = test_waterbird_preds(idxs, labels_, background_groups_)
+            if curr_worst_acc > max_worst_acc:
+                max_worst_acc = curr_worst_acc
+
+            worst_class_acc.append(curr_worst_acc)
+            worst_class_nr_pcs.append(pcs_per_class)
+
+
+    concept_nr = "1"
+    # Save parameters to a JSON file
+    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
+
+    # Suppose later (or in another script) you want to recover the parameters:
+    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+    params = load_parameters(file_to_load)
+    plot_proof_of_concept(**params)
+
+
+def proof_concept_2_remove(classifier_, attns_, mlps_, labels_, classes_, model_name, model, tokenizer, device, background_groups_, final_embeddings_texts, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, concepts_to_remove = ["water background", "land background"], pcs_per_class_start=1, pcs_per_class_end=1500, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):
+    # Derive embedding:
+    for k, concept in enumerate(concepts_to_remove):
+        # Retrieve an embedding
+        with torch.no_grad():
+            # If querying by text, define a text prompt and encode it into an embedding
+            # Tokenize the text query and move it to the device (GPU/CPU)
+            text_query_token = tokenizer(concept).to(device)  
+            # Encode the tokenized text into a normalized embedding
+            topic_emb = model.encode_text(text_query_token, normalize=True)
+            if k == 0:
+                concepts_emb = torch.zeros(len(concepts_to_remove), topic_emb.shape[-1], device=device)
+            concepts_emb[k] = topic_emb
+
+    # Print baseline accuracy
+    # Baseline accuracy computation:
+    baseline = attns_.sum(axis=(1, 2)) + mlps_.sum(axis=1)
+    baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
+    if classes_ == waterbird_classes:
+        baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+    # Reconstruct embeddings for each class label
+
+    # Get mean of data and texts
+    mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
+
+    concepts_centered = concepts_emb - mean_final_texts.unsqueeze(0)
+
+    sorted_data = []
+    for text_idx in range(concepts_centered.shape[0]):
+        # Perform query system on entry
+        concept_i_centered = concepts_centered[text_idx, :].unsqueeze(0)
+
+        data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+
+        _, data_abs = reconstruct_embeddings(
+            data, 
+            [concept_i_centered], 
+            ["text"], 
+            return_princ_comp=True, 
+            plot=False, 
+            means=[mean_final_texts],
+        )
+
+        # Extract relevant details from the top k entries
+        data_pcs = sort_data_by(data_abs, "correlation_princ_comp_abs", descending=True)
+        # Derive nr_pcs_per_class
+        sorted_data.append(data_pcs)
+
+    max_worst_acc = 0
+
+    worst_class_acc = []
+    worst_class_nr_pcs = []
+
+    total_accuracy = []  # Will store the average accuracy across all text_idx for each pcs_per_class
+
+    for pcs_per_class in range(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
+        entries = []
+
+        # Collect top_k_entries for each concept
+        for text_idx in range(concepts_centered.shape[0]):
+            # Retrieve data
+            data_pcs = sorted_data[text_idx]
+            top_k_entries = top_data(data_pcs, pcs_per_class)
+            print(f"Currently processing label: {concepts_to_remove[text_idx]} with nr_pcs_per_class: {pcs_per_class}")
+            entries += top_k_entries
+
+        # Remove duplicates
+        entries_set = []
+        entries_meta = []
+        for entry in entries:
+            layer = entry["layer"]
+            head = entry["head"]
+            princ_comp = entry["princ_comp"]
+            if (layer, head, princ_comp) not in entries_meta:
+                entries_meta.append((layer, head, princ_comp))
+                entries_set.append(entry)
+
+        print(f"Total number of unique entries: {len(entries_set)}")
+
+        # Extract other components
+        top_k_other_details = get_remaining_pcs(data, entries_set)
+
+        # If `random` is True, randomly pick PCs instead of the actual top_k
+        if random:
+            data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+            top_k_other_details = random_pcs(data, pcs_per_class * len(classes_))
+
+        # Reconstruct final_embeddings_images
+        reconstructed_images = reconstruct_all_embeddings_mean_ablation_pcs(
+            top_k_other_details,
+            mlps_,
+            attns_,
+            attns_,
+            nr_layers_,
+            nr_heads_,
+            num_last_layers_,
+            ratio=-1,
+            mean_ablate_all=True
+        )
+
+        reconstructed_images /= reconstructed_images.norm(dim=-1, keepdim=True)
+        predictions = reconstructed_images @ classifier_
+
+        # Evaluate across all text_idx
+        # (If you have different labels per text_idx, adapt accordingly.)
+        # For simplicity, assume `test_accuracy` returns (acc, idxs) for the entire set.
+        acc, idxs = test_accuracy(predictions, labels_, label="All classes combined")
+        total_accuracy.append(acc)
+
+        # If you need to evaluate `acc` separately for each text_idx, do so in the loop above.
+        # Then store the average or final result below.
+
+        # You might also be printing correctness here:
+        print_correct_elements(idxs, labels_, classes_)
+
+        # Worst-class accuracy for Waterbirds, if applicable
+        if classes_ == waterbird_classes:
+            curr_worst_acc = test_waterbird_preds(idxs, labels_, background_groups_)
+            if curr_worst_acc > max_worst_acc:
+                max_worst_acc = curr_worst_acc
+                pcs_per_class_max_worst_acc = pcs_per_class
+
+            worst_class_acc.append(curr_worst_acc)
+            worst_class_nr_pcs.append(pcs_per_class)
+
+    concept_nr = "2"
+    # Save parameters to a JSON file
+    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
+
+    # Suppose later (or in another script) you want to recover the parameters:
+    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+    params = load_parameters(file_to_load)
+    plot_proof_of_concept(**params)
+
+
+def proof_concept_3_add(classifier_, attns_, mlps_, labels_, classes_, model_name, model, tokenizer, device, background_groups_, final_embeddings_texts, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, concepts_to_add = ["feet shape", "beak shape"], pcs_per_class_start=1, pcs_per_class_end=1500, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):
+    class_embeddings = classifier_.T  # M x D
+    # Derive embedding:
+    for k, concept in enumerate(concepts_to_add):
+        # Retrieve an embedding
+        with torch.no_grad():
+            # If querying by text, define a text prompt and encode it into an embedding
+            # Tokenize the text query and move it to the device (GPU/CPU)
+            text_query_token = tokenizer(concept).to(device)  
+            # Encode the tokenized text into a normalized embedding
+            topic_emb = model.encode_text(text_query_token, normalize=True)
+            if k == 0:
+                concepts_emb = torch.zeros(len(concepts_to_add), topic_emb.shape[-1], device=device)
+            concepts_emb[k] = topic_emb
+
+    # Print baseline accuracy
+    # Baseline accuracy computation:
+    baseline = attns_.sum(axis=(1, 2)) + mlps_.sum(axis=1)
+    baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
+    if classes_ == waterbird_classes:
+        baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+    # Reconstruct embeddings for each class label
+
+    # Get mean of data and texts
+    mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
+
+    concepts_centered = concepts_emb - mean_final_texts.unsqueeze(0)
+
+    sorted_data = []
+    for text_idx in range(concepts_centered.shape[0]):
+        # Perform query system on entry
+        concept_i_centered = concepts_centered[text_idx, :].unsqueeze(0)
+
+        data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+
+        _, data_abs = reconstruct_embeddings(
+            data, 
+            [concept_i_centered], 
+            ["text"], 
+            return_princ_comp=True, 
+            plot=False, 
+            means=[mean_final_texts],
+        )
+
+        # Extract relevant details from the top k entries
+        data_pcs = sort_data_by(data_abs, "correlation_princ_comp_abs", descending=True)
+        # Derive nr_pcs_per_class
+        sorted_data.append(data_pcs)
+
+    max_worst_acc = 0
+
+    worst_class_acc = []
+    worst_class_nr_pcs = []
+
+    total_accuracy = []  # Will store the average accuracy across all text_idx for each pcs_per_class
+
+    for pcs_per_class in range(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
+        entries = []
+
+        # Collect top_k_entries for each concept
+        for text_idx in range(concepts_centered.shape[0]):
+            # Retrieve data
+            data_pcs = sorted_data[text_idx]
+            top_k_entries = top_data(data_pcs, pcs_per_class)
+            print(f"Currently processing label: {concepts_to_add[text_idx]} with nr_pcs_per_class: {pcs_per_class}")
+            entries += top_k_entries
+
+        # Remove duplicates
+        entries_set = []
+        entries_meta = []
+        for entry in entries:
+            layer = entry["layer"]
+            head = entry["head"]
+            princ_comp = entry["princ_comp"]
+            if (layer, head, princ_comp) not in entries_meta:
+                entries_meta.append((layer, head, princ_comp))
+                entries_set.append(entry)
+
+        print(f"Total number of unique entries: {len(entries_set)}")
+
+        # If `random` is True, randomly pick PCs instead of the actual top_k
+        if random:
+            data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+            entries_set = random_pcs(data, pcs_per_class * len(classes_))
+
+        # Reconstruct final_embeddings_images
+        reconstructed_images = reconstruct_all_embeddings_mean_ablation_pcs(
+            entries_set,
+            mlps_,
+            attns_,
+            attns_,
+            nr_layers_,
+            nr_heads_,
+            num_last_layers_,
+            ratio=-1,
+            mean_ablate_all=True
+        )
+
+        reconstructed_images /= reconstructed_images.norm(dim=-1, keepdim=True)
+        predictions = reconstructed_images @ classifier_
+
+        # Evaluate across all text_idx
+        # (If you have different labels per text_idx, adapt accordingly.)
+        # For simplicity, assume `test_accuracy` returns (acc, idxs) for the entire set.
+        acc, idxs = test_accuracy(predictions, labels_, label="All classes combined")
+        total_accuracy.append(acc)
+
+        # If you need to evaluate `acc` separately for each text_idx, do so in the loop above.
+        # Then store the average or final result below.
+
+        # You might also be printing correctness here:
+        print_correct_elements(idxs, labels_, classes_)
+
+        # Worst-class accuracy for Waterbirds, if applicable
+        if classes_ == waterbird_classes:
+            curr_worst_acc = test_waterbird_preds(idxs, labels_, background_groups_)
+            if curr_worst_acc > max_worst_acc:
+                max_worst_acc = curr_worst_acc
+
+            worst_class_acc.append(curr_worst_acc)
+            worst_class_nr_pcs.append(pcs_per_class)
+
+    concept_nr = "3"
+    # Save parameters to a JSON file
+    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
+
+    # Suppose later (or in another script) you want to recover the parameters:
+    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+    params = load_parameters(file_to_load)
+    plot_proof_of_concept(**params)
+
+def proof_concept_4_pcs_single(classifier_, attns_, mlps_, labels_, classes_, model_name, background_groups_, final_embeddings_texts, final_embeddings_images, subset_dim, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, pcs_per_class_start=1, pcs_per_class_end=2000, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):   
+    class_embeddings = classifier_.T  # M x D
+
+    # Print baseline accuracy
+    # Baseline accuracy computation:
+    baseline = attns_.sum(axis=(1, 2)) + mlps_.sum(axis=1)
+    baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
+    if classes_ == waterbird_classes:
+        baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+    # Reconstruct embeddings for each class label
+
+    # Get mean of data and texts
+    mean_final_images = torch.mean(final_embeddings_images, axis=0)
+    mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
+
+    classes_centered = class_embeddings - mean_final_texts.unsqueeze(0)
+
+    # Initialize a (num_images x 2) array to track:
+    #   [best_score_so_far, class_index_for_that_score]
+
+    sorted_data = []
+    for text_idx in range(classes_centered.shape[0]):
+        # Perform query system on entry
+        concept_i_centered = classes_centered[text_idx, :].unsqueeze(0)
+
+        data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+
+        _, data_abs = reconstruct_embeddings(
+            data, 
+            [concept_i_centered], 
+            ["text"], 
+            return_princ_comp=True, 
+            plot=False, 
+            means=[mean_final_texts],
+        )
+
+        # Extract relevant details from the top k entries
+        data_pcs = sort_data_by(data_abs, "correlation_princ_comp_abs", descending=True)
+        # Derive nr_pcs_per_class
+        sorted_data.append(data_pcs)
+
+    max_worst_acc = 0
+
+    worst_class_acc = []
+    worst_class_nr_pcs = []
+
+    total_accuracy = []  # Will store the average accuracy across all text_idx for each pcs_per_class
+
+    for pcs_per_class in range(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
+        all_preds = torch.zeros((final_embeddings_images.shape[0], 2), dtype=torch.double)
+
+        for text_idx in range(classes_centered.shape[0]):
+            # Retrieve data
+            data_pcs = sorted_data[text_idx]
+            top_k_entries = top_data(data_pcs, pcs_per_class)
+            # If `random` is True, randomly pick PCs instead of the actual top_k
+            if random:
+                data = get_data(attention_dataset, max_pcs_per_head, skip_final=True)
+                top_k_entries = random_pcs(data, pcs_per_class * len(classes_))
+                
+            # Reconstruct final_embeddings_images
+            reconstructed_images = reconstruct_all_embeddings_mean_ablation_pcs(
+                top_k_entries,
+                mlps_,
+                attns_, 
+                attns_,
+                nr_layers_,
+                nr_heads_,
+                num_last_layers_,
+                ratio=-1,
+                mean_ablate_all=False
+            )
+
+            reconstructed_images /= reconstructed_images.norm(dim=-1, keepdim=True)
+            predictions = reconstructed_images @ class_embeddings[text_idx, :].T #class_embeddings[text_idx, :].T
+            # Update "best so far" scores in all_preds
+            best_vals_this_round = predictions
+            improved_mask = best_vals_this_round > all_preds[:, 0]
+
+            best_idxs_this_round = torch.full_like(all_preds[:, 1], fill_value=text_idx)
+            all_preds[improved_mask, 0] = best_vals_this_round[improved_mask].double()
+            all_preds[improved_mask, 1] = best_idxs_this_round[improved_mask].double()
+
+            # Optionally, check accuracy for the current text_idx predictions
+            acc, idxs = test_accuracy(predictions.unsqueeze(-1), labels_, label=f"{classes_[text_idx]}")
+            print_correct_elements(idxs, labels_, classes_)
+
+            # Build a fictitious one-hot matrix from all_preds
+            num_images = final_embeddings_images.shape[0]
+            num_classes = classifier_.shape[1]  # Typically M x D => M classes => classifier_.shape[1] is #classes
+
+            # Convert the best class index to a LongTensor
+            best_class_idxs = all_preds[:, 1].long()
+
+            # Create zero matrix [num_images, num_classes]
+            fictitious_preds = torch.zeros((num_images, num_classes), device=best_class_idxs.device)
+
+            # Fill 1.0 in the best predicted class for each image
+            fictitious_preds[torch.arange(num_images), best_class_idxs] = 1.0
+
+            # Test accuracy on these "hard" predictions
+            acc_best, idxs_best = test_accuracy(fictitious_preds, labels_, label="Best So Far (One-Hot)")
+            if text_idx == len(classes_centered) - 1:
+                total_accuracy.append(acc_best)
+
+            sorted_output = print_correct_elements(idxs_best, labels_, classes_)
+            if classes_ == waterbird_classes:
+                curr_worst_acc = test_waterbird_preds(idxs_best, labels_, background_groups_)
+                if text_idx == len(classes_centered) - 1:
+                    if curr_worst_acc > max_worst_acc:
+                        max_worst_acc = curr_worst_acc
+                        pcs_per_class_max_worst_acc = pcs_per_class
+
+                    worst_class_acc.append(curr_worst_acc)
+                    worst_class_nr_pcs.append(pcs_per_class)
+
+            # Print overall accuracy so far
+            tot_sum = 0
+            for _, el_nr in sorted_output:
+                tot_sum += el_nr
+            if subset_dim == None:
+                print(f"Tot accuracy so far is {tot_sum/len(labels_)}")
+
+            else:
+                print(f"Tot accuracy so far is {tot_sum/((text_idx + 1) * subset_dim)}")
+                    
+    concept_nr = "4"
+    # Save parameters to a JSON file
+    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
+
+    # Suppose later (or in another script) you want to recover the parameters:
+    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+    params = load_parameters(file_to_load)
+    plot_proof_of_concept(**params)
