@@ -225,9 +225,6 @@ def main(args):
             count_final = print_wrong_elements_label(indexes_approx_final, label, subset_dim)
             acc_bias_rem_list.append(float(acc_final))
             count_bias_rem_list.append(int(count_final))
-            if c == 2:
-                break
-
 
         # Once the loop over classes is done, prepare the result structure
         results = {

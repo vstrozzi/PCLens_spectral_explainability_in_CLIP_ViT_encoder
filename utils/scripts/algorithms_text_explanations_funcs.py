@@ -1799,7 +1799,7 @@ def proof_concept_2_remove(classifier_, attns_, mlps_, labels_, classes_, model_
             nr_heads_,
             num_last_layers_,
             ratio=-1,
-            mean_ablate_all=True
+            mean_ablate_all=False
         )
 
         reconstructed_images /= reconstructed_images.norm(dim=-1, keepdim=True)
@@ -1933,7 +1933,7 @@ def proof_concept_3_add(classifier_, attns_, mlps_, labels_, classes_, model_nam
             nr_heads_,
             num_last_layers_,
             ratio=-1,
-            mean_ablate_all=True
+            mean_ablate_all=False
         )
 
         reconstructed_images /= reconstructed_images.norm(dim=-1, keepdim=True)
