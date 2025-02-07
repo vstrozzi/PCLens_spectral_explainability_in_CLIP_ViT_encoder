@@ -104,12 +104,7 @@ def main(args):
     mean_rank_ /= len(data)
 
     # Prepare to store results
-    acc_baseline_list = []
-    count_baseline_list = []
-    acc_rec_list = []
-    count_rec_list = []
-    acc_bias_rem_list = []
-    count_bias_rem_list = []
+
 
     query_text = True
     top_k = args.top_k
@@ -119,9 +114,9 @@ def main(args):
     mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
     labels_embeddings = classifier_.T
 
-    pcs_per_class_start = 1
-    pcs_per_class_end = 2500
-    pcs_per_class_step = 10
+    pcs_per_class_start = 3500
+    pcs_per_class_end = int(nr_heads_*num_last_layers_*mean_rank_)
+    pcs_per_class_step = 500
 
     # Center class embedding
     sorted_data = []
@@ -147,11 +142,30 @@ def main(args):
         sorted_data.append(data_pcs)
         # Log
         print(f"Class nr {text_idx} ({imagenet_classes[text_idx]}) is done")
-        if(text_idx == 2):
-            break
     
-    for pcs_per_class in range(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
+    def range_with_last_clamped(start, stop, step):
+        current = start
+        did_clamped = False
+        
+        while current < stop:
+            yield current
+            current += step
+        
+        # If we overshot and haven't yielded the clamp
+        # e.g., if current > stop and we want that final "stop - 1".
+        if current > stop:
+            yield stop - 1
+            did_clamped = True
+
+
+    for pcs_per_class in range_with_last_clamped(pcs_per_class_start, pcs_per_class_end, pcs_per_class_step):
         print(f"Start with nr of k {pcs_per_class}")  # spacing
+        acc_baseline_list = []
+        count_baseline_list = []
+        acc_rec_list = []
+        count_rec_list = []
+        acc_bias_rem_list = []
+        count_bias_rem_list = []
         for c, label in enumerate(imagenet_classes):
             
             # Retrieve topic embedding
@@ -225,9 +239,6 @@ def main(args):
             count_final = print_wrong_elements_label(indexes_approx_final, label, subset_dim)
             acc_bias_rem_list.append(float(acc_final))
             count_bias_rem_list.append(int(count_final))
-            if c == 2:
-                break
-
 
         # Once the loop over classes is done, prepare the result structure
         results = {
