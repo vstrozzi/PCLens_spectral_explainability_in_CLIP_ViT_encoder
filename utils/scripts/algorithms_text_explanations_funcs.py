@@ -1587,7 +1587,8 @@ def proof_concept_1_pcs_all(classifier_, attns_, mlps_, labels_, classes_, model
 
     if classes_ == waterbird_classes:
         baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
-
+    else:
+        baseline_worst = None
     # Using the knwoledge of which class are we predicting wrongly, give more or less weight to pcs per class
     # Reconstruct embeddings for each class label
 
@@ -1690,16 +1691,16 @@ def proof_concept_1_pcs_all(classifier_, attns_, mlps_, labels_, classes_, model
             worst_class_acc.append(curr_worst_acc)
             worst_class_nr_pcs.append(pcs_per_class)
 
+    if classes_ == waterbird_classes:
+        concept_nr = "1"
+        # Save parameters to a JSON file
+        save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                        baseline_worst, baseline_acc, model_name, concept_nr, classes_)
 
-    concept_nr = "1"
-    # Save parameters to a JSON file
-    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
-                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
-
-    # Suppose later (or in another script) you want to recover the parameters:
-    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
-    params = load_parameters(file_to_load)
-    plot_proof_of_concept(**params)
+        # Suppose later (or in another script) you want to recover the parameters:
+        file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+        params = load_parameters(file_to_load)
+        plot_proof_of_concept(**params)
 
 
 def proof_concept_2_remove(classifier_, attns_, mlps_, labels_, classes_, model_name, model, tokenizer, device, background_groups_, final_embeddings_texts, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, concepts_to_remove = ["water background", "land background"], pcs_per_class_start=1, pcs_per_class_end=1500, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):
@@ -1722,6 +1723,8 @@ def proof_concept_2_remove(classifier_, attns_, mlps_, labels_, classes_, model_
     baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
     if classes_ == waterbird_classes:
         baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+    else:
+        baseline_worst = None
     # Reconstruct embeddings for each class label
 
     # Get mean of data and texts
@@ -1826,16 +1829,17 @@ def proof_concept_2_remove(classifier_, attns_, mlps_, labels_, classes_, model_
 
             worst_class_acc.append(curr_worst_acc)
             worst_class_nr_pcs.append(pcs_per_class)
+    
+    if classes_ == waterbird_classes:
+        concept_nr = "2"
+        # Save parameters to a JSON file
+        save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                        baseline_worst, baseline_acc, model_name, concept_nr, classes_)
 
-    concept_nr = "2"
-    # Save parameters to a JSON file
-    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
-                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
-
-    # Suppose later (or in another script) you want to recover the parameters:
-    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
-    params = load_parameters(file_to_load)
-    plot_proof_of_concept(**params)
+        # Suppose later (or in another script) you want to recover the parameters:
+        file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+        params = load_parameters(file_to_load)
+        plot_proof_of_concept(**params)
 
 
 def proof_concept_3_add(classifier_, attns_, mlps_, labels_, classes_, model_name, model, tokenizer, device, background_groups_, final_embeddings_texts, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, concepts_to_add = ["feet shape", "beak shape"], pcs_per_class_start=1, pcs_per_class_end=1500, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):
@@ -1859,6 +1863,8 @@ def proof_concept_3_add(classifier_, attns_, mlps_, labels_, classes_, model_nam
     baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
     if classes_ == waterbird_classes:
         baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+    else:
+        baseline_worst = None
     # Reconstruct embeddings for each class label
 
     # Get mean of data and texts
@@ -1960,15 +1966,16 @@ def proof_concept_3_add(classifier_, attns_, mlps_, labels_, classes_, model_nam
             worst_class_acc.append(curr_worst_acc)
             worst_class_nr_pcs.append(pcs_per_class)
 
-    concept_nr = "3"
-    # Save parameters to a JSON file
-    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
-                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
+    if classes_ == waterbird_classes:
+        concept_nr = "3"
+        # Save parameters to a JSON file
+        save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                        baseline_worst, baseline_acc, model_name, concept_nr, classes_)
 
-    # Suppose later (or in another script) you want to recover the parameters:
-    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
-    params = load_parameters(file_to_load)
-    plot_proof_of_concept(**params)
+        # Suppose later (or in another script) you want to recover the parameters:
+        file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+        params = load_parameters(file_to_load)
+        plot_proof_of_concept(**params)
 
 def proof_concept_4_pcs_single(classifier_, attns_, mlps_, labels_, classes_, model_name, background_groups_, final_embeddings_texts, final_embeddings_images, subset_dim, attention_dataset, nr_layers_, nr_heads_, num_last_layers_, pcs_per_class_start=1, pcs_per_class_end=2000, pcs_per_class_step=10, max_pcs_per_head=-1, random=False):   
     class_embeddings = classifier_.T  # M x D
@@ -1979,6 +1986,8 @@ def proof_concept_4_pcs_single(classifier_, attns_, mlps_, labels_, classes_, mo
     baseline_acc, idxs = test_accuracy(baseline @ classifier_, labels_, label="Baseline")
     if classes_ == waterbird_classes:
         baseline_worst = test_waterbird_preds(idxs, labels_, background_groups_)
+    else:
+        baseline_worst = None
     # Reconstruct embeddings for each class label
 
     # Get mean of data and texts
@@ -2095,13 +2104,14 @@ def proof_concept_4_pcs_single(classifier_, attns_, mlps_, labels_, classes_, mo
 
             else:
                 print(f"Tot accuracy so far is {tot_sum/((text_idx + 1) * subset_dim)}")
-                    
-    concept_nr = "4"
-    # Save parameters to a JSON file
-    save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
-                    baseline_worst, baseline_acc, model_name, concept_nr, classes_)
+    
+    if classes_ == waterbird_classes:    
+        concept_nr = "4"
+        # Save parameters to a JSON file
+        save_parameters_proof_of_concept(worst_class_acc, total_accuracy, worst_class_nr_pcs,
+                        baseline_worst, baseline_acc, model_name, concept_nr, classes_)
 
-    # Suppose later (or in another script) you want to recover the parameters:
-    file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
-    params = load_parameters(file_to_load)
-    plot_proof_of_concept(**params)
+        # Suppose later (or in another script) you want to recover the parameters:
+        file_to_load = f"params_{model_name}_proof_of_concept_{concept_nr}.json"
+        params = load_parameters(file_to_load)
+        plot_proof_of_concept(**params)
