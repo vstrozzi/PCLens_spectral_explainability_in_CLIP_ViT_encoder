@@ -2,24 +2,54 @@ name: MT
 channels:
   - pytorch
   - nvidia
+  - conda-forge
 dependencies:
-  - python >= 3.8
-  - pytorch >= 1.13
-  - torchvision
+  # Core conda packages
+  - python=3.10
+  # LLaVA-pinned PyTorch versions (switch to pip if conda doesn't have them):
+  - pytorch=2.1.2
+  - torchvision=0.16.2
   - pytorch-cuda=11.7
-  - transformers
   - bitsandbytes
+  - scikit-learn=1.2.2
+  - ninja                # unpinned, latest from conda
+  - pip                  # ensure pip is installed in the env
+  
+  # Everything else via pip (mix of pinned and unpinned)
   - pip:
-    - timm
+    # === LLaVA pinned versions ===
+    - transformers==4.37.2
+    - tokenizers==0.15.1
+    - sentencepiece==0.1.99
+    - accelerate==0.21.0
+    - einops==0.6.1
+    - einops-exts==0.0.4
+    - timm==0.6.13
+    - gradio==4.16.0
+    - gradio_client==0.8.1
+    - httpx==0.24.0
+    - deepspeed==0.12.6
+    - shortuuid
+    - peft
+    
+    # === LLaVA unpinned or lightly specified (latest) ===
+    - pydantic
+    - markdown2[all]
+    - requests
+    - uvicorn
+    - fastapi
+    - wandb
+    - build
+    - twine
+    
+    # === From your original environment.yml (latest where not pinned) ===
     - tabulate
-    - einops
     - ftfy
     - scipy
     - tensorboard
     - imageio
     - h5py
     - scikit-image
-    - scikit-learn
     - opencv-python
     - regex
     - matplotlib

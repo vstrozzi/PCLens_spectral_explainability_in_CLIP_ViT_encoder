@@ -12,6 +12,7 @@ Use the provided [`environment.yml`](environment.yml) file to create a Conda env
 ```bash
 conda env create -f environment.yml
 conda activate MT
+pip install -e llava-fork
 ```
 #### Download Dataset(s)
 Please download the Imagenet dataset from [here](http://calvin-vision.net/bigstuff/proj-imagenet/data/gtsegs_ijcv.mat):
