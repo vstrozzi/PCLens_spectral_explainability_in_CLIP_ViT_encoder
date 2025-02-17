@@ -11,7 +11,7 @@ class PRSLogger(object):
     Can be run on cuda devices.
     l = number of layers, n = number of patches, h = number of heads, d = dimension of the attention
     """
-    def __init__(self, model, device, spatial: bool = True):
+    def __init__(self, model, device, spatial: bool = True, vision_projection: bool = True):
         self.current_layer = 0
         self.device = device
         self.attentions = []
@@ -20,6 +20,7 @@ class PRSLogger(object):
         self.post_ln_std = None # If the CLIP model uses pre-projection Layer Norm
         self.post_ln_mean = None
         self.model = model
+        self.vision_projection = vision_projection # If we want to apply the vision proejction
 
     @torch.no_grad()
     def compute_attentions_spatial(self, ret):
@@ -85,7 +86,10 @@ class PRSLogger(object):
             self.model.visual.ln_post.bias.detach().to(self.device) / len_intermediates
         )
         post_ln = weighted_mean_by_std + bias_term
-        return post_ln @ self.model.visual.proj.detach().to(self.device)
+        if self.vision_projection:
+            return post_ln @ self.model.visual.proj.detach().to(self.device)
+        else:
+            return post_ln.to(self.device)
 
     def _normalize_attentions_spatial(self):
         len_intermediates = self.attentions.shape[1] + self.mlps.shape[1]  # 2*l + 1
@@ -106,7 +110,12 @@ class PRSLogger(object):
             len_intermediates * normalization_term
         )
         post_ln = weighted_mean_by_std + bias_term
-        return post_ln @ self.model.visual.proj.detach().to(self.device)
+        
+        if self.vision_projection:
+            return post_ln @ self.model.visual.proj.detach().to(self.device)
+        else:
+            print("Keeping dim")
+            return post_ln.to(self.device)
 
     def _normalize_attentions_non_spatial(self):
         len_intermediates = self.attentions.shape[1] + self.mlps.shape[1]  # 2*l + 1
@@ -127,7 +136,10 @@ class PRSLogger(object):
             len_intermediates * normalization_term
         )
         post_ln = weighted_mean_by_std + bias_term
-        return post_ln @ self.model.visual.proj.detach().to(self.device)
+        if self.vision_projection:
+            return post_ln @ self.model.visual.proj.detach().to(self.device)
+        else:
+            return post_ln.to(self.device)
 
     @torch.no_grad()
     def finalize(self, representation):
@@ -163,9 +175,9 @@ class PRSLogger(object):
         torch.cuda.empty_cache()
 
 
-def hook_prs_logger(model, device, spatial: bool = True):
+def hook_prs_logger(model, device, spatial: bool = True, vision_projection: bool = True):
     """Hooks a projected residual stream logger to the model."""
-    prs = PRSLogger(model, device, spatial=spatial)
+    prs = PRSLogger(model, device, spatial=spatial, vision_projection=vision_projection)
     if spatial:
         model.hook_manager.register(
             "visual.transformer.resblocks.*.attn.out.post", prs.compute_attentions_spatial
