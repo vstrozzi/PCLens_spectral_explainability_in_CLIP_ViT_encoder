@@ -156,6 +156,7 @@ _VITL14 = dict(
 )
 
 _VITL14_336 = dict(
+    hf = _pcfg(hf_hub='openai/clip-vit-large-patch14-336/'),
     openai=_pcfg(
         "https://openaipublic.azureedge.net/clip/models/3035c92b350959924f9f00213499208652fc7ea050643e8b385c2dac08641f02/ViT-L-14-336px.pt"),
 )
@@ -426,9 +427,12 @@ def download_pretrained(
         # 'org/model_name/filename.pt' form. To specify just the model id w/o filename and
         # use 'open_clip_pytorch_model.bin' default, there must be a trailing slash 'org/model_name/'.
         model_id, filename = os.path.split(download_hf_hub)
-        if filename:
-            target = download_pretrained_from_hf(model_id, filename=filename, cache_dir=cache_dir)
+        if "clip-vit-large-patch14-336" in model_id:   
+            target = download_pretrained_from_hf(model_id, filename='pytorch_model.bin', cache_dir=cache_dir)
         else:
-            target = download_pretrained_from_hf(model_id, cache_dir=cache_dir)
+            if filename:
+                target = download_pretrained_from_hf(model_id, filename=filename, cache_dir=cache_dir)
+            else:
+                target = download_pretrained_from_hf(model_id, cache_dir=cache_dir)
 
     return target

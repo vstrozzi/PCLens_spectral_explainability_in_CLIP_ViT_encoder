@@ -81,6 +81,112 @@ def get_tokenizer(model_name):
             config['text_cfg']['hf_tokenizer_name']) if 'hf_tokenizer_name' in config['text_cfg'] else NotHFTokenizer()
     return tokenizer
 
+def convert_clip_state_dict(old_state: dict) -> dict:
+    """
+    Convert a state dict with keys like:
+      - text_model.embeddings.token_embedding.weight
+      - text_model.encoder.layers.{i}.self_attn.{q,k,v}_proj.weight/bias, etc.
+      - vision_model.embeddings.patch_embedding.weight, etc.
+      - text_projection.weight, visual_projection.weight, logit_scale
+    into one with keys as expected by our CLIP model:
+      - token_embedding.weight, positional_embedding, text_projection,
+      - transformer.resblocks.{i}.attn.in_proj_weight/in_proj_bias, etc.
+      - visual.class_embedding, visual.conv1.weight, visual.ln_pre.*, visual.transformer.resblocks.{i}.*,
+      - visual.ln_post.*, visual.proj, logit_scale, ln_final.*
+    """
+    new_state = {}
+    
+    # --- Global keys ---
+    new_state["logit_scale"] = old_state["logit_scale"]
+    
+    # --- TEXT branch ---
+    # Embeddings
+    new_state["token_embedding.weight"] = old_state["text_model.embeddings.token_embedding.weight"]
+    new_state["positional_embedding"] = old_state["text_model.embeddings.position_embedding.weight"]
+    new_state["text_projection"] = old_state["text_projection.weight"]
+    
+    # Transformer encoder layers (12 layers)
+    for i in range(12):
+        old_prefix = f"text_model.encoder.layers.{i}."
+        new_prefix = f"transformer.resblocks.{i}."
+        
+        # Combine separate Q/K/V weights into one [3*embed_dim, embed_dim] tensor.
+        q_w = old_state[old_prefix + "self_attn.q_proj.weight"]
+        k_w = old_state[old_prefix + "self_attn.k_proj.weight"]
+        v_w = old_state[old_prefix + "self_attn.v_proj.weight"]
+        new_state[new_prefix + "attn.in_proj_weight"] = torch.cat([q_w, k_w, v_w], dim=0)
+        
+        q_b = old_state[old_prefix + "self_attn.q_proj.bias"]
+        k_b = old_state[old_prefix + "self_attn.k_proj.bias"]
+        v_b = old_state[old_prefix + "self_attn.v_proj.bias"]
+        new_state[new_prefix + "attn.in_proj_bias"] = torch.cat([q_b, k_b, v_b], dim=0)
+        
+        # Out projection (unchanged aside from renaming)
+        new_state[new_prefix + "attn.out_proj.weight"] = old_state[old_prefix + "self_attn.out_proj.weight"]
+        new_state[new_prefix + "attn.out_proj.bias"] = old_state[old_prefix + "self_attn.out_proj.bias"]
+        
+        # Layer norms (rename layer_norm1 -> ln_1, layer_norm2 -> ln_2)
+        new_state[new_prefix + "ln_1.weight"] = old_state[old_prefix + "layer_norm1.weight"]
+        new_state[new_prefix + "ln_1.bias"] = old_state[old_prefix + "layer_norm1.bias"]
+        new_state[new_prefix + "ln_2.weight"] = old_state[old_prefix + "layer_norm2.weight"]
+        new_state[new_prefix + "ln_2.bias"] = old_state[old_prefix + "layer_norm2.bias"]
+        
+        # MLP mapping: fc1 -> mlp.c_fc, fc2 -> mlp.c_proj
+        new_state[new_prefix + "mlp.c_fc.weight"] = old_state[old_prefix + "mlp.fc1.weight"]
+        new_state[new_prefix + "mlp.c_fc.bias"] = old_state[old_prefix + "mlp.fc1.bias"]
+        new_state[new_prefix + "mlp.c_proj.weight"] = old_state[old_prefix + "mlp.fc2.weight"]
+        new_state[new_prefix + "mlp.c_proj.bias"] = old_state[old_prefix + "mlp.fc2.bias"]
+    
+    # Final layer norm on text side
+    new_state["ln_final.weight"] = old_state["text_model.final_layer_norm.weight"]
+    new_state["ln_final.bias"] = old_state["text_model.final_layer_norm.bias"]
+    
+    # --- VISION branch ---
+    # Embeddings & pre-transformer
+    new_state["visual.class_embedding"] = old_state["vision_model.embeddings.class_embedding"]
+    new_state["visual.positional_embedding"] = old_state["vision_model.embeddings.position_embedding.weight"]
+    new_state["visual.conv1.weight"] = old_state["vision_model.embeddings.patch_embedding.weight"]
+    new_state["visual.ln_pre.weight"] = old_state["vision_model.pre_layrnorm.weight"]
+    new_state["visual.ln_pre.bias"] = old_state["vision_model.pre_layrnorm.bias"]
+    
+    # Transformer encoder layers (24 layers)
+    for i in range(24):
+        old_prefix = f"vision_model.encoder.layers.{i}."
+        new_prefix = f"visual.transformer.resblocks.{i}."
+        
+        # Combine Q/K/V projections into one weight & bias.
+        q_w = old_state[old_prefix + "self_attn.q_proj.weight"]
+        k_w = old_state[old_prefix + "self_attn.k_proj.weight"]
+        v_w = old_state[old_prefix + "self_attn.v_proj.weight"]
+        new_state[new_prefix + "attn.in_proj_weight"] = torch.cat([q_w, k_w, v_w], dim=0)
+        
+        q_b = old_state[old_prefix + "self_attn.q_proj.bias"]
+        k_b = old_state[old_prefix + "self_attn.k_proj.bias"]
+        v_b = old_state[old_prefix + "self_attn.v_proj.bias"]
+        new_state[new_prefix + "attn.in_proj_bias"] = torch.cat([q_b, k_b, v_b], dim=0)
+        
+        # Out projection
+        new_state[new_prefix + "attn.out_proj.weight"] = old_state[old_prefix + "self_attn.out_proj.weight"]
+        new_state[new_prefix + "attn.out_proj.bias"] = old_state[old_prefix + "self_attn.out_proj.bias"]
+        
+        # Layer norms
+        new_state[new_prefix + "ln_1.weight"] = old_state[old_prefix + "layer_norm1.weight"]
+        new_state[new_prefix + "ln_1.bias"] = old_state[old_prefix + "layer_norm1.bias"]
+        new_state[new_prefix + "ln_2.weight"] = old_state[old_prefix + "layer_norm2.weight"]
+        new_state[new_prefix + "ln_2.bias"] = old_state[old_prefix + "layer_norm2.bias"]
+        
+        # MLP mapping
+        new_state[new_prefix + "mlp.c_fc.weight"] = old_state[old_prefix + "mlp.fc1.weight"]
+        new_state[new_prefix + "mlp.c_fc.bias"] = old_state[old_prefix + "mlp.fc1.bias"]
+        new_state[new_prefix + "mlp.c_proj.weight"] = old_state[old_prefix + "mlp.fc2.weight"]
+        new_state[new_prefix + "mlp.c_proj.bias"] = old_state[old_prefix + "mlp.fc2.bias"]
+    
+    # Post-transformer norm for vision branch and projection matrix
+    new_state["visual.ln_post.weight"] = old_state["vision_model.post_layernorm.weight"]
+    new_state["visual.ln_post.bias"] = old_state["vision_model.post_layernorm.bias"]
+    new_state["visual.proj"] = old_state["visual_projection.weight"].T
+    
+    return new_state
 
 def load_state_dict(checkpoint_path: str, map_location='cpu'):
     checkpoint = torch.load(checkpoint_path, map_location=map_location)
@@ -98,7 +204,12 @@ def load_checkpoint(model, checkpoint_path, strict=True):
     # detect old format and make compatible with new format
     if 'positional_embedding' in state_dict and not hasattr(model, 'positional_embedding'):
         state_dict = convert_to_custom_text_state_dict(state_dict)
+    state_dict = convert_to_custom_text_state_dict(state_dict)
+
     resize_pos_embed(state_dict, model)
+    # If we have special case for conmversiom
+    if "text_model.embeddings.position_ids" in state_dict:
+        state_dict = convert_clip_state_dict(state_dict)
     incompatible_keys = model.load_state_dict(state_dict, strict=strict)
     return incompatible_keys
 
@@ -125,7 +236,6 @@ def create_model(
         model_id = model_name[len(HF_HUB_PREFIX):]
         checkpoint_path = download_pretrained_from_hf(model_id, cache_dir=cache_dir)
         config_path = download_pretrained_from_hf(model_id, filename='open_clip_config.json', cache_dir=cache_dir)
-
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
         pretrained_cfg = config['preprocess_cfg']
@@ -148,6 +258,7 @@ def create_model(
             device=device,
             cache_dir=cache_dir,
         )
+        
     # timm models, torchvisions models, and custom models
     else:
         model_cfg = model_cfg or get_model_config(model_name)
@@ -192,6 +303,7 @@ def create_model(
                 raise ValueError('CustomTextCLIP is not implemented')
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
         else:
+            
             model = CLIP(**model_cfg, cast_dtype=cast_dtype)
 
         if precision in ("fp16", "bf16"):
