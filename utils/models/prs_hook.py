@@ -55,6 +55,11 @@ class PRSLogger(object):
         return ret
 
     @torch.no_grad()
+    def compute_mlps_spatial(self, ret):
+        self.mlps.append(ret.detach().cpu())  # [b, m, d]
+        return ret
+    
+    @torch.no_grad()
     def compute_mlps(self, ret):
         self.mlps.append(ret[:, 0].detach().cpu())  # [b, d]
         return ret
@@ -186,10 +191,18 @@ def hook_prs_logger(model, device, spatial: bool = True, vision_projection: bool
         model.hook_manager.register(
             "visual.transformer.resblocks.*.attn.out.post", prs.compute_attentions_non_spatial
         )
-    model.hook_manager.register(
-        "visual.transformer.resblocks.*.mlp.c_proj.post", prs.compute_mlps
-    )
-    model.hook_manager.register("visual.ln_pre_post", prs.compute_mlps)
+    # If we don't project into shared space, use mlps with all patches
+    if vision_projection:
+        model.hook_manager.register(
+            "visual.transformer.resblocks.*.mlp.c_proj.post", prs.compute_mlps
+        )
+        model.hook_manager.register("visual.ln_pre_post", prs.compute_mlps)
+
+    else:
+        model.hook_manager.register(
+            "visual.transformer.resblocks.*.mlp.c_proj.post", prs.compute_mlps_spatial
+        )
+        model.hook_manager.register("visual.ln_pre_post", prs.compute_mlps_spatial)
     model.hook_manager.register("visual.ln_post.mean", prs.log_post_ln_mean)
     model.hook_manager.register("visual.ln_post.sqrt_var", prs.log_post_ln_std)
     return prs
