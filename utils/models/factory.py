@@ -201,10 +201,10 @@ def load_state_dict(checkpoint_path: str, map_location='cpu'):
 
 def load_checkpoint(model, checkpoint_path, strict=True):
     state_dict = load_state_dict(checkpoint_path)
+
     # detect old format and make compatible with new format
     if 'positional_embedding' in state_dict and not hasattr(model, 'positional_embedding'):
         state_dict = convert_to_custom_text_state_dict(state_dict)
-    state_dict = convert_to_custom_text_state_dict(state_dict)
 
     resize_pos_embed(state_dict, model)
     # If we have special case for conmversiom
@@ -303,7 +303,9 @@ def create_model(
                 raise ValueError('CustomTextCLIP is not implemented')
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
         else:
-            
+            # Add spatial
+            if "ViT-L-14-336" in model_name:   
+                model_cfg["vision_cfg"]["output_tokens"] = True
             model = CLIP(**model_cfg, cast_dtype=cast_dtype)
 
         if precision in ("fp16", "bf16"):
