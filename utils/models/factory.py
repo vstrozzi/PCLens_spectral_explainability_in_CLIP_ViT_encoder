@@ -303,9 +303,6 @@ def create_model(
                 raise ValueError('CustomTextCLIP is not implemented')
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
         else:
-            # Add spatial
-            if "ViT-L-14-336" in model_name:   
-                model_cfg["vision_cfg"]["output_tokens"] = True
             model = CLIP(**model_cfg, cast_dtype=cast_dtype)
 
         if precision in ("fp16", "bf16"):
