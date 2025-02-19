@@ -119,7 +119,6 @@ class PRSLogger(object):
         if self.vision_projection:
             return post_ln @ self.model.visual.proj.detach().to(self.device)
         else:
-            print("Keeping dim")
             return post_ln.to(self.device)
 
     def _normalize_attentions_non_spatial(self):

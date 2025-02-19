@@ -856,7 +856,7 @@ class VisionTransformer(nn.Module):
         else:
             pooled, tokens = self.hook("global_pool.post", ret=self._global_pool(x))
             pooled = self.hook("ln_post_post", ret=self.ln_post(pooled))
-
+        
         if self.proj is not None:
             pooled = self.hook(
                 "proj.post", ret=self.hook("proj.pre", ret=pooled) @ self.proj
