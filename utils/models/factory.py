@@ -313,15 +313,21 @@ def create_model(
                 # then cast only LayerNormFp32 instances back to float32 so they don't break.
                 # Why? The convert_weights_to_lp fn only works with native models.
                 model.to(device=device, dtype=dtype)
-                from transformer import LayerNormFp32
+                from transformer import LayerNormFp32y
                 def _convert_ln(m):
                     if isinstance(m, LayerNormFp32):
                         m.weight.data = m.weight.data.to(torch.float32)
                         m.bias.data = m.bias.data.to(torch.float32)
                 model.apply(_convert_ln)
             else:
-                model.to(device=device)
-                convert_weights_to_lp(model, dtype=dtype)
+                model.to(device=device, dtype=dtype)
+                """ from utils.models.transformer import LayerNorm
+                def _convert_ln(m):
+                    if isinstance(m, LayerNorm):
+                        m.weight.data = m.weight.data.to(torch.float32)
+                        m.bias.data = m.bias.data.to(torch.float32)
+
+                model.apply(_convert_ln) """
         elif precision in ("pure_fp16", "pure_bf16"):
             dtype = torch.float16 if 'fp16' in precision else torch.bfloat16
             model.to(device=device, dtype=dtype)
