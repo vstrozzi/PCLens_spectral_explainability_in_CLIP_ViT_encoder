@@ -1,4 +1,5 @@
 {
+    "quick_gelu": true,
     "embed_dim": 768,
     "vision_cfg": {
         "image_size": 336,

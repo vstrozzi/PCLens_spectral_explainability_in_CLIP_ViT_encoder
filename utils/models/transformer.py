@@ -16,6 +16,16 @@ from utils.misc.misc import to_2tuple
 from utils.models.hook import HookManager
 
 
+
+class QuickGELUActivation(nn.Module):
+    """
+    Applies GELU approximation that is fast but somewhat inaccurate. See: https://github.com/hendrycks/GELUs
+    """
+
+    def forward(self, input):
+        return input * torch.sigmoid(1.702 * input)
+
+
 class LayerNorm(nn.Module):
     """Subclass torch's LayerNorm (with cast back to input dtype)."""
 
@@ -307,6 +317,7 @@ class MultiheadAttention(nn.Module):
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
+
     def forward_direct(self, x, attn_mask=None):
         B, N, C = x.shape
         qkv = self.hook(
@@ -314,19 +325,18 @@ class MultiheadAttention(nn.Module):
             ret=self.hook("in_proj.post", ret=x @ self.in_proj_weight.T)
             + self.in_proj_bias,
         )
-        print(qkv.shape)
-        qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        print(qkv.shape)
+        
+        qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4).contiguous()
 
         q, k, v = qkv.unbind(0)
         k = self.hook("k", ret=k)
         q = self.hook("q", ret=q)
         v = self.hook("v", ret=v)
         dk = q.size()[-1]
-        q = q * self.scale
+        q = q * torch.tensor(self.scale, dtype=torch.float16)
         q = self.hook("q_norm", ret=q)
         # B H S D
-        attn = q @ k.transpose(-2, -1)  # [B, H, N, N]
+        attn = q @ k.transpose(-2, -1).contiguous()  # [B, H, N, N]
         attn = self.hook("pre_mask", ret=attn)
         if attn_mask is not None:
             attn += attn_mask
@@ -335,7 +345,7 @@ class MultiheadAttention(nn.Module):
         attn = self.hook("post_softmax", ret=attn)
         x = attn @ v
 
-        x = x.transpose(1, 2).reshape(B, N, C)
+        x = x.transpose(1, 2).reshape(B, N, C).contiguous()
         x = self.hook("attn_v", ret=x)
         x = self.hook(
             "out_proj_bias.post",
@@ -343,6 +353,70 @@ class MultiheadAttention(nn.Module):
             + self.out_proj.bias,
         )
         return x
+
+    def forward_clip(self, x, attn_mask=None):
+        """
+        This forward branch implements the attention mechanism as in CLIPAttention,
+        adapted to use MultiheadAttention’s projection parameters. It accepts the same
+        arguments as the other forward methods.
+        """
+        B, tgt_len, C = x.shape
+        if C != self.embed_dim:
+            raise ValueError(f"Input embedding dim ({C}) does not match layer's embed_dim ({self.embed_dim}).")
+
+        # Compute Q, K, V using the in_proj parameters.
+        # For Q, we also apply the scaling factor.
+        q_proj = torch.nn.functional.linear(x, self.in_proj_weight[:C, :], self.in_proj_bias[:C])
+        q_proj = q_proj * self.scale
+        k_proj = torch.nn.functional.linear(x, self.in_proj_weight[C:2*C, :], self.in_proj_bias[C:2*C])
+        v_proj = torch.nn.functional.linear(x, self.in_proj_weight[2*C:3*C, :], self.in_proj_bias[2*C:3*C])
+
+        # Reshape projections to (B, num_heads, tgt_len, head_dim)
+        q_states = self._shape(q_proj, tgt_len, B)
+        k_states = self._shape(k_proj, tgt_len, B)
+        v_states = self._shape(v_proj, tgt_len, B)
+
+        # Flatten to (B*num_heads, tgt_len, head_dim) for bmm.
+        proj_shape = (B * self.num_heads, tgt_len, self.head_dim)
+        q_states = q_states.view(*proj_shape)
+        k_states = k_states.view(*proj_shape)
+        v_states = v_states.view(*proj_shape)
+
+        # Compute raw attention scores.
+        attn_weights = torch.bmm(q_states, k_states.transpose(1, 2))
+        src_len = k_states.size(1)
+        if attn_weights.size() != (B * self.num_heads, tgt_len, src_len):
+            raise ValueError(
+                f"Attention weights should be of size {(B * self.num_heads, tgt_len, src_len)}, but got {attn_weights.size()}"
+            )
+
+        # Apply the attention mask (if provided).
+        if attn_mask is not None:
+            if attn_mask.size() != (B, 1, tgt_len, src_len):
+                raise ValueError(
+                    f"Attention mask should be of size {(B, 1, tgt_len, src_len)}, but got {attn_mask.size()}"
+                )
+            attn_weights = attn_weights.view(B, self.num_heads, tgt_len, src_len) + attn_mask
+            attn_weights = attn_weights.view(B * self.num_heads, tgt_len, src_len)
+
+        # Softmax over the last dimension.
+        attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1)
+        # Apply dropout.
+        attn_weights = torch.nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+
+        # Compute the attention output.
+        attn_output = torch.bmm(attn_weights, v_states)
+        if attn_output.size() != (B * self.num_heads, tgt_len, self.head_dim):
+            raise ValueError(
+                f"attn_output should be of size {(B * self.num_heads, tgt_len, self.head_dim)}, but got {attn_output.size()}"
+            )
+
+        # Reshape and combine heads.
+        attn_output = attn_output.view(B, self.num_heads, tgt_len, self.head_dim)
+        attn_output = attn_output.transpose(1, 2).reshape(B, tgt_len, C)
+        # Final projection.
+        attn_output = self.out_proj(attn_output)
+        return attn_output
 
     def _split_qkv_weight(self):
         q_weight, k_weight, v_weight = (
@@ -582,11 +656,11 @@ class MultiheadAttention(nn.Module):
     def forward(self, x, attn_mask=None, method: Text = "direct"):
         print(method)
         if method == "direct":
-            x = self.forward_direct(x, attn_mask=attn_mask)
+            x = self.forward_clip(x, attn_mask=attn_mask)
         elif method == "qkv":
             x = self.forward_qkv(x, attn_mask=attn_mask)
         elif method == "head":
-            x = self.forward_per_head(x, attn_mask=attn_mask)
+            x = self.forward_clip(x, attn_mask=attn_mask)
         elif method == "head_no_spatial":
             x = self.forward_per_head_no_spatial(x, attn_mask=attn_mask)
         elif method == "ov_circuit":

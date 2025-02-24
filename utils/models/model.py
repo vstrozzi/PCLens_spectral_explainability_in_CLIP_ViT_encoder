@@ -14,7 +14,7 @@ from torch.utils.checkpoint import checkpoint
 from functools import partial
 from utils.models.modified_resnet import ModifiedResNet
 from utils.models.timm_model import TimmModel
-from utils.models.transformer import LayerNorm, QuickGELU, VisionTransformer, TextTransformer, Attention
+from utils.models.transformer import LayerNorm, QuickGELUActivation, VisionTransformer, TextTransformer, Attention
 from utils.misc.misc import to_2tuple
 from utils.models.hook import HookManager
 
@@ -130,7 +130,7 @@ def _build_vision_tower(
     # OpenAI models are pretrained w/ QuickGELU but native nn.GELU is both faster and more
     # memory efficient in recent PyTorch releases (>= 1.10).
     # NOTE: timm models always use native GELU regardless of quick_gelu flag.
-    act_layer = QuickGELU if quick_gelu else nn.GELU
+    act_layer = QuickGELUActivation if quick_gelu else nn.GELU
 
     if vision_cfg.timm_model_name:
         visual = TimmModel(
@@ -204,7 +204,7 @@ def _build_text_tower(
             output_tokens=text_cfg.output_tokens,
         )
     else:
-        act_layer = QuickGELU if quick_gelu else nn.GELU
+        act_layer = QuickGELUActivation if quick_gelu else nn.GELU
         norm_layer = partial(LayerNorm, dtype=torch.float32) if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
 
         text = TextTransformer(

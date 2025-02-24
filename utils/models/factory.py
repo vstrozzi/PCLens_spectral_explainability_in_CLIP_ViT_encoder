@@ -98,7 +98,6 @@ def convert_clip_state_dict(old_state: dict) -> dict:
     
     # --- Global keys ---
     new_state["logit_scale"] = old_state["logit_scale"]
-    
     # --- TEXT branch ---
     # Embeddings
     new_state["token_embedding.weight"] = old_state["text_model.embeddings.token_embedding.weight"]
@@ -159,7 +158,7 @@ def convert_clip_state_dict(old_state: dict) -> dict:
         k_w = old_state[old_prefix + "self_attn.k_proj.weight"]
         v_w = old_state[old_prefix + "self_attn.v_proj.weight"]
         new_state[new_prefix + "attn.in_proj_weight"] = torch.cat([q_w, k_w, v_w], dim=0)
-        
+  
         q_b = old_state[old_prefix + "self_attn.q_proj.bias"]
         k_b = old_state[old_prefix + "self_attn.k_proj.bias"]
         v_b = old_state[old_prefix + "self_attn.v_proj.bias"]
