@@ -50,13 +50,13 @@ class LayerNorm(nn.Module):
         else:
             self.register_parameter("weight", None)
             self.register_parameter("bias", None)
-
+        
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
         assert self.normalized_shape == x.shape[-len(self.normalized_shape) :]
         dims = [-(i + 1) for i in range(len(self.normalized_shape))]
-        mean = self.hook("mean", ret=x.mean(dim=dims, keepdim=True))
-        mean_x2 = (x**2).mean(dim=dims, keepdim=True)
+        mean = self.hook("mean", ret=x.mean(dim=-1, keepdim=True))
+        mean_x2 = (x**2).mean(dim=-1, keepdim=True)
         var = mean_x2 - mean**2
         x_norm = self.hook("mean_reduced", ret=(x - mean)) / self.hook(
             "sqrt_var", ret=torch.sqrt(var + self.eps)
@@ -64,8 +64,7 @@ class LayerNorm(nn.Module):
         if self.elementwise_affine:
             x_norm = self.hook("renorm.post", ret=self.weight * x_norm + self.bias)
         self.hook.finalize()
-        return x_norm.to(orig_type)
-
+        return torch.nn.functional.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
 
 class QuickGELU(nn.Module):
     # NOTE This is slower than nn.GELU or nn.SiLU and uses more GPU memory
@@ -303,6 +302,10 @@ class MultiheadAttention(nn.Module):
             self.bias_k = self.bias_v = None
 
         self.add_zero_attn = add_zero_attn
+        self.scale = self.head_dim**-0.5
+
+    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
     def forward_direct(self, x, attn_mask=None):
         B, N, C = x.shape
@@ -311,20 +314,24 @@ class MultiheadAttention(nn.Module):
             ret=self.hook("in_proj.post", ret=x @ self.in_proj_weight.T)
             + self.in_proj_bias,
         )
+        print(qkv.shape)
         qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        print(qkv.shape)
+
         q, k, v = qkv.unbind(0)
         k = self.hook("k", ret=k)
         q = self.hook("q", ret=q)
         v = self.hook("v", ret=v)
         dk = q.size()[-1]
-        q = q / math.sqrt(dk)
+        q = q * self.scale
         q = self.hook("q_norm", ret=q)
+        # B H S D
         attn = q @ k.transpose(-2, -1)  # [B, H, N, N]
         attn = self.hook("pre_mask", ret=attn)
         if attn_mask is not None:
             attn += attn_mask
         attn = self.hook("post_mask", ret=attn)
-        attn = attn.softmax(dim=-1)
+        attn = nn.functional.softmax(attn, dim=-1)
         attn = self.hook("post_softmax", ret=attn)
         x = attn @ v
 
@@ -572,7 +579,8 @@ class MultiheadAttention(nn.Module):
         x = self.hook("out.post_bias", ret=x + self.out_proj.bias)
         return x
 
-    def forward(self, x, attn_mask=None, method: Text = "ov_circuit"):
+    def forward(self, x, attn_mask=None, method: Text = "direct"):
+        print(method)
         if method == "direct":
             x = self.forward_direct(x, attn_mask=attn_mask)
         elif method == "qkv":

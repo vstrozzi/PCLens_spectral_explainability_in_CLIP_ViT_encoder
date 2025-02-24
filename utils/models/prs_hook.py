@@ -16,6 +16,7 @@ class PRSLogger(object):
         self.device = device
         self.attentions = []
         self.mlps = []
+
         self.spatial = spatial # If we want to compute also the spatial contributions of each patch in the attention
         self.post_ln_std = None # If the CLIP model uses pre-projection Layer Norm
         self.post_ln_mean = None

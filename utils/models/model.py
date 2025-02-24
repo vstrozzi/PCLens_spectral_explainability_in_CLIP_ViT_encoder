@@ -11,8 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.utils.checkpoint import checkpoint
-
-
+from functools import partial
 from utils.models.modified_resnet import ModifiedResNet
 from utils.models.timm_model import TimmModel
 from utils.models.transformer import LayerNorm, QuickGELU, VisionTransformer, TextTransformer, Attention
@@ -159,7 +158,7 @@ def _build_vision_tower(
         )
     else:
         vision_heads = vision_cfg.width // vision_cfg.head_width
-        norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
+        norm_layer = partial(LayerNorm, dtype=torch.float32) if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
         visual = VisionTransformer(
             image_size=vision_cfg.image_size,
             patch_size=vision_cfg.patch_size,
@@ -206,7 +205,7 @@ def _build_text_tower(
         )
     else:
         act_layer = QuickGELU if quick_gelu else nn.GELU
-        norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
+        norm_layer = partial(LayerNorm, dtype=torch.float32) if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
 
         text = TextTransformer(
             context_length=text_cfg.context_length,
