@@ -63,18 +63,18 @@ class LayerNorm(nn.Module):
         
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
+        x = x.to(dtype=torch.float32)
         assert self.normalized_shape == x.shape[-len(self.normalized_shape) :]
-        dims = [-(i + 1) for i in range(len(self.normalized_shape))]
-        mean = self.hook("mean", ret=x.mean(dim=-1, keepdim=True))
-        mean_x2 = (x**2).mean(dim=-1, keepdim=True)
-        var = mean_x2 - mean**2
+        dims = [-(i + 1) for i in range(len(self.normalized_shape))] # Normalization dimensions
+        mean = self.hook("mean", ret=x.mean(dim=dims, keepdim=True))
+        var = x.var(dim=dims, keepdim=True, unbiased=True)
         x_norm = self.hook("mean_reduced", ret=(x - mean)) / self.hook(
             "sqrt_var", ret=torch.sqrt(var + self.eps)
         )
         if self.elementwise_affine:
             x_norm = self.hook("renorm.post", ret=self.weight * x_norm + self.bias)
         self.hook.finalize()
-        return torch.nn.functional.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
+        return torch.nn.functional.layer_norm(x.to(dtype=orig_type), self.normalized_shape, self.weight, self.bias, self.eps)
 
 class QuickGELU(nn.Module):
     # NOTE This is slower than nn.GELU or nn.SiLU and uses more GPU memory
@@ -326,6 +326,7 @@ class MultiheadAttention(nn.Module):
             + self.in_proj_bias,
         )
         
+        # 3, B, H, N, D
         qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4).contiguous()
 
         q, k, v = qkv.unbind(0)
@@ -333,7 +334,7 @@ class MultiheadAttention(nn.Module):
         q = self.hook("q", ret=q)
         v = self.hook("v", ret=v)
         dk = q.size()[-1]
-        q = q * torch.tensor(self.scale, dtype=torch.float16)
+        q = q * self.scale
         q = self.hook("q_norm", ret=q)
         # B H S D
         attn = q @ k.transpose(-2, -1).contiguous()  # [B, H, N, N]
@@ -403,8 +404,21 @@ class MultiheadAttention(nn.Module):
         attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1)
         # Apply dropout.
         attn_weights = torch.nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+        attn_weights_r = attn_weights.view(B, self.num_heads, tgt_len, src_len).clone()
 
-        # Compute the attention output.
+        
+        # Compute the attention output keeping the heads
+        self.hook(
+        "out.post",
+        ret=torch.einsum(
+            "bnmhc,dhc->bnmhd",
+            torch.einsum(
+            "bhnm,bhmc->bnmhc", attn_weights_r, v_states_r
+        ) ,
+            self.out_proj.weight.reshape(
+                self.embed_dim, self.num_heads, self.head_dim
+            ),
+        ))
         attn_output = torch.bmm(attn_weights, v_states)
         if attn_output.size() != (B * self.num_heads, tgt_len, self.head_dim):
             raise ValueError(
@@ -414,6 +428,7 @@ class MultiheadAttention(nn.Module):
         # Reshape and combine heads.
         attn_output = attn_output.view(B, self.num_heads, tgt_len, self.head_dim)
         attn_output = attn_output.transpose(1, 2).reshape(B, tgt_len, C)
+
         # Final projection.
         attn_output = self.out_proj(attn_output)
         return attn_output
@@ -654,13 +669,12 @@ class MultiheadAttention(nn.Module):
         return x
 
     def forward(self, x, attn_mask=None, method: Text = "direct"):
-        print(method)
         if method == "direct":
-            x = self.forward_clip(x, attn_mask=attn_mask)
+            x = self.forward_direct(x, attn_mask=attn_mask)
         elif method == "qkv":
             x = self.forward_qkv(x, attn_mask=attn_mask)
         elif method == "head":
-            x = self.forward_clip(x, attn_mask=attn_mask)
+            x = self.forward_per_head(x, attn_mask=attn_mask)
         elif method == "head_no_spatial":
             x = self.forward_per_head_no_spatial(x, attn_mask=attn_mask)
         elif method == "ov_circuit":
@@ -724,11 +738,12 @@ class ResidualAttentionBlock(nn.Module):
             q_x=after_ln1, attn_mask=attn_mask, method=attn_method
         )
         after_attn = self.hook("after_attn", ret=after_attn)
-        x = q_x + self.ls_1(after_attn)
-        after_ln2 = self.ln_2(x)
-        after_mlp = self.mlp(after_ln2)
-        after_mlp = self.hook("after_mlp", ret=after_mlp)
-        x = x + self.ls_2(after_mlp)
+        after_ls_1 = self.hook("after_ls_1", ret=self.ls_1(after_attn))
+        x = q_x + after_ls_1
+        after_ln_2 = self.hook("after_ln2", ret=self.ln_2(x))
+        after_mlp = self.hook("after_mlp", ret=self.mlp(after_ln_2))
+        after_ls_2 = self.hook("after_ls_2", ret=self.ls_2(after_mlp))
+        x = x + after_ls_2
         x = self.hook("post", ret=x)
         self.hook.finalize()
         return x
