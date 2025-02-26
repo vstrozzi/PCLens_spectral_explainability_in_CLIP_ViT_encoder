@@ -404,22 +404,9 @@ class MultiheadAttention(nn.Module):
         attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1)
         # Apply dropout.
         attn_weights = torch.nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
-        attn_weights_r = attn_weights.view(B, self.num_heads, tgt_len, src_len).clone()
-
         
-        # Compute the attention output keeping the heads
-        self.hook(
-        "out.post",
-        ret=torch.einsum(
-            "bnmhc,dhc->bnmhd",
-            torch.einsum(
-            "bhnm,bhmc->bnmhc", attn_weights_r, v_states_r
-        ) ,
-            self.out_proj.weight.reshape(
-                self.embed_dim, self.num_heads, self.head_dim
-            ),
-        ))
         attn_output = torch.bmm(attn_weights, v_states)
+        
         if attn_output.size() != (B * self.num_heads, tgt_len, self.head_dim):
             raise ValueError(
                 f"attn_output should be of size {(B * self.num_heads, tgt_len, self.head_dim)}, but got {attn_output.size()}"
@@ -427,7 +414,16 @@ class MultiheadAttention(nn.Module):
 
         # Reshape and combine heads.
         attn_output = attn_output.view(B, self.num_heads, tgt_len, self.head_dim)
+        
+        # Compute the attention output keeping the heads
+        self.hook(
+        "out.post",
+        ret= F.linear(attn_output, self.out_proj.weight, bias=None)
+        )
+
+        # bnhc chd C = h*c
         attn_output = attn_output.transpose(1, 2).reshape(B, tgt_len, C)
+
 
         # Final projection.
         attn_output = self.out_proj(attn_output)
@@ -676,7 +672,7 @@ class MultiheadAttention(nn.Module):
         elif method == "head":
             x = self.forward_per_head(x, attn_mask=attn_mask)
         elif method == "head_no_spatial":
-            x = self.forward_per_head_no_spatial(x, attn_mask=attn_mask)
+            x = self.forward_per_head_no_spatial(x, attn_mask=attn_mask) # ToDO: Add remainig hooks
         elif method == "ov_circuit":
             x = self.forward_ov_circuit(x, attn_mask=attn_mask)
         else:

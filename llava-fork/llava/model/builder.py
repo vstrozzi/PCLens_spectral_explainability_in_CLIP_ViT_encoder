@@ -16,10 +16,6 @@
 import os
 import warnings
 import shutil
-os.environ["HUGGINGFACE_HUB_CACHE"] = "/cluster/work/vogtlab/Group/vstrozzi/cache/"
-os.environ["TRANSFORMERS_CACHE"] = "/cluster/work/vogtlab/Group/vstrozzi/cache/"
-os.environ["HF_DATASETS_CACHE"] = "/cluster/work/vogtlab/Group/vstrozzi/cache/"
-os.environ["HF_HUB_CACHE"] = "/cluster/work/vogtlab/Group/vstrozzi/cache/"
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
 import torch
 from llava.model import *
