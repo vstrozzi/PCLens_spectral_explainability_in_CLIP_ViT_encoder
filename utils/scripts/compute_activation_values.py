@@ -16,16 +16,6 @@ from utils.datasets.dataset_helpers import dataset_to_dataloader
 from utils.models.prs_hook import hook_prs_logger
 from torchvision.datasets import CIFAR100, CIFAR10, ImageNet, ImageFolder
 
-def parse_dtype(arg_value):
-    arg_value = arg_value.lower()
-    if arg_value in ['float16', 'fp16']:
-        return torch.float16
-    elif arg_value in ['float32', 'fp32']:
-        return torch.float32
-    else:
-        raise argparse.ArgumentTypeError(
-            f"Unsupported quantization type: {arg_value}. Use 'float16' or 'float32'."
-        )
 
 def get_args_parser():
     parser = argparse.ArgumentParser("Project Residual Stream - Option B", add_help=False)
@@ -52,7 +42,7 @@ def get_args_parser():
     parser.add_argument("--max_nr_samples_before_writing", default=1000, type=int,
                         help="How many samples to keep in RAM before saving them to chunk files")
 
-    parser.add_argument("--quantization", help="Quantization size (choose 'float16' or 'float32')", default="float32", type=parse_dtype)
+    parser.add_argument("--quantization", help="Quantization size (choose 'fp16' or 'fp32')", default="fp32", type=str)
 
     return parser
 
@@ -66,9 +56,9 @@ def main(args):
 
     # Build & move model:
     model, _, preprocess = create_model_and_transforms(
-        args.model, pretrained=args.pretrained, cache_dir=args.cache_dir
+        args.model, pretrained=args.pretrained, precision=args.quantization, cache_dir=args.cache_dir
     )
-    model.to(args.device, dtype=args.quantization)
+    model.to(args.device)
     model.eval()
     
     context_length = model.context_length
@@ -186,10 +176,8 @@ def main(args):
             # First, move the image to the GPU asynchronously.
             image = image.to(args.device, non_blocking=True)
             # Then, cast to lower precision on the GPU.
-            if args.quantization == torch.float16:
-                image = image.half()
-            elif args.quantization == torch.bfloat16:
-                image = image.bfloat16()
+            if args.quantization == "fp16":
+                image = image.to(dtype=torch.float16)
             representation = model.encode_image(image, attn_method="head", normalize=False
             )
             

@@ -236,7 +236,7 @@ class PRSLogger(object):
         else:
             if self.spatial:
                 projected_attentions = self._normalize_attentions_spatial()
-                projected_mlps = self._normalize_mlps_spatial()
+                projected_mlps = self._normalize_mlps()
             else:
                 projected_attentions = self._normalize_attentions_non_spatial()
                 projected_mlps = self._normalize_mlps()
