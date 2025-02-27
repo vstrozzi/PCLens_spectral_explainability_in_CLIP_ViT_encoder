@@ -230,30 +230,28 @@ class PRSLogger(object):
             self.device
         )  # [b, l, ..., n, h, d]
         self.mlps = torch.stack(self.mlps, axis=1).to(self.device)  # [b, l + 1, ..., d]
-        if self.full_output:
-            projected_attentions = self.attentions
-            projected_mlps = self.mlps
+        if self.full_output or not self.vision_projection:
+            return (
+                self.attentions,
+                self.mlps
+            )
         else:
+            norm = representation.norm(dim=-1).detach()
+            projected_mlps = self._normalize_mlps()
             if self.spatial:
                 projected_attentions = self._normalize_attentions_spatial()
-                projected_mlps = self._normalize_mlps()
+                return (
+                    projected_attentions
+                    / norm[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis],
+                    projected_mlps / norm[:, np.newaxis, np.newaxis]
+                )
             else:
                 projected_attentions = self._normalize_attentions_non_spatial()
-                projected_mlps = self._normalize_mlps()
-
-        norm = representation.norm(dim=-1).detach()
-
-        if self.vision_projection:
-            return (
-                projected_attentions
-                / norm[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis],
-                projected_mlps / norm[:, np.newaxis, np.newaxis, np.newaxis],
-            )
-        else:
-            return (
-                projected_attentions,
-                projected_mlps
-            )
+                return (
+                    projected_attentions
+                    / norm[:, np.newaxis, np.newaxis, np.newaxis],
+                    projected_mlps / norm[:, np.newaxis, np.newaxis]
+                )
         
     def reinit(self):
         self.current_layer = 0
