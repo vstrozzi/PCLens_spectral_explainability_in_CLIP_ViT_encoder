@@ -1129,7 +1129,7 @@ def visualize_principal_component(
     indexes_texts = np.arange(0, final_embeddings_texts.shape[0], 1)
 
     # Compute mean embeddings for centering
-    mean_final_images = torch.mean(final_embeddings_images, axis=0)
+    mean_final_images = torch.mean(final_embeddings_images,  axis=0)
     mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
 
     images_centered = final_embeddings_images - mean_final_images

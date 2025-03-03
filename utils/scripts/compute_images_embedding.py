@@ -33,6 +33,7 @@ def get_args_parser():
         default="imagenet",
         help="imagenet, waterbirds, cub, binary_waterbirds",
     )
+
     return parser
 
 
@@ -43,7 +44,7 @@ def main(args):
     """
     attns = np.load(os.path.join(args.output_dir, f"{args.dataset}_attn_{args.model}_seed_{args.seed}.npy"), mmap_mode="r")  # [b, l, h, d]
     mlps = np.load(os.path.join(args.output_dir, f"{args.dataset}_mlp_{args.model}_seed_{args.seed}.npy"), mmap_mode="r")  # [b, l+1, d]
-    
+
     print(attns.shape, mlps.shape)
     # Final embeddings of the model, from summing all the activations
     # of the model(i.e. reconstruct normal output of ViT).

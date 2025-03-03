@@ -16,6 +16,15 @@ from utils.datasets.dataset_helpers import dataset_to_dataloader
 from utils.models.prs_hook import hook_prs_logger
 from torchvision.datasets import CIFAR100, CIFAR10, ImageNet, ImageFolder
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def get_args_parser():
     parser = argparse.ArgumentParser("Project Residual Stream - Option B", add_help=False)
@@ -43,6 +52,8 @@ def get_args_parser():
                         help="How many samples to keep in RAM before saving them to chunk files")
 
     parser.add_argument("--quantization", help="Quantization size (choose 'fp16' or 'fp32')", default="fp32", type=str)
+    parser.add_argument("--vision_proj", help="Project output down to text-img CLIP embedding space", default=True, type=str2bool)
+    parser.add_argument("--full_output", help="Whether to output all the patch tokens and not only the CLS", default=False, type=str2bool)
 
     return parser
 
@@ -72,8 +83,7 @@ def main(args):
     print("Vocab size:", vocab_size)
     print("Len of res:", len(model.visual.transformer.resblocks))
 
-    prs = hook_prs_logger(model, args.device)
-
+    prs = hook_prs_logger(model, args.device, spatial=False, vision_projection=args.vision_proj, full_output=args.full_output)
     # Dataset:
     if args.dataset == "imagenet":
         ds = ImageNet(root=args.data_path, split="val", transform=preprocess)
@@ -118,25 +128,39 @@ def main(args):
     # We won't create final .npy until after the loop
     # Instead, we'll keep chunk-based filenames:
     # E.g. {dataset}_attn_{model}_seed_{seed}_chunk0.npy, chunk1.npy, ...
-    chunk_attn_template = os.path.join(args.output_dir,
-        f"{args.dataset}_attn_{args.model}_seed_{args.seed}_chunk{{idx}}.npy")
-    chunk_mlp_template = os.path.join(args.output_dir,
-        f"{args.dataset}_mlp_{args.model}_seed_{args.seed}_chunk{{idx}}.npy")
-    chunk_cls_template = os.path.join(args.output_dir,
-        f"{args.dataset}_cls_attn_{args.model}_seed_{args.seed}_chunk{{idx}}.npy")
-    chunk_labels_template = os.path.join(args.output_dir,
-        f"{args.dataset}_labels_{args.model}_seed_{args.seed}_chunk{{idx}}.npy")
+    chunk_attn_template = os.path.join(
+    args.output_dir,
+        f"{args.dataset}_attn{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}_chunk{{idx}}.npy"
+    )
+    chunk_mlp_template = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_mlp{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}_chunk{{idx}}.npy"
+    )
+    chunk_cls_template = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_cls_attn{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}_chunk{{idx}}.npy"
+    )
+    chunk_labels_template = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_labels{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}_chunk{{idx}}.npy"
+    )
 
-    # Final filenames (concatenated):
-    final_attn_file = os.path.join(args.output_dir,
-        f"{args.dataset}_attn_{args.model}_seed_{args.seed}.npy")
-    final_mlp_file = os.path.join(args.output_dir,
-        f"{args.dataset}_mlp_{args.model}_seed_{args.seed}.npy")
-    final_cls_attn_file = os.path.join(args.output_dir,
-        f"{args.dataset}_cls_attn_{args.model}_seed_{args.seed}.npy")
-    final_labels_file = os.path.join(args.output_dir,
-        f"{args.dataset}_labels_{args.model}_seed_{args.seed}.npy")
-
+    final_attn_file = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_attn{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}.npy"
+    )
+    final_mlp_file = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_mlp{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}.npy"
+    )
+    final_cls_attn_file = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_cls_attn{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}.npy"
+    )
+    final_labels_file = os.path.join(
+        args.output_dir,
+        f"{args.dataset}_labels{'_full' if args.full_output else ''}_{args.model}_seed_{args.seed}.npy"
+    )
 
     # Remove final files if they exist, just to be safe
     for ff in [final_attn_file, final_mlp_file, final_cls_attn_file, final_labels_file]:
@@ -166,6 +190,7 @@ def main(args):
         cls_to_cls_results.clear()
         labels_results.clear()
         
+    
     for i, (image, labels) in enumerate(tqdm.tqdm(dataloader)):
 
         batch_size_here = image.shape[0]
@@ -178,7 +203,7 @@ def main(args):
             # Then, cast to lower precision on the GPU.
             if args.quantization == "fp16":
                 image = image.to(dtype=torch.float16)
-            representation = model.encode_image(image, attn_method="head", normalize=False
+            representation = model.encode_image(image, attn_method= "head_no_spatial", normalize=False
             )
             
             attentions, mlps = prs.finalize(representation)
@@ -186,11 +211,9 @@ def main(args):
             mlps = mlps.detach().cpu().numpy()              # [b, l+1, d]
 
         # Accumulate in memory
-        attention_results.append(np.sum(attentions, axis=2))  # reduce the spatial dimension
+        attention_results.append(attentions)  # reduce the spatial dimension
         mlp_results.append(mlps)
-        cls_to_cls_results.append(
-            np.sum(attentions[:, :, 0], axis=2)
-        )  # store the cls->cls attention, reduce heads
+        cls_to_cls_results.append(attentions[:, :, 0]) # store the cls->cls attention, reduce heads
         labels_results.append(labels.cpu().numpy())
 
         # Check if we should dump to chunk files
