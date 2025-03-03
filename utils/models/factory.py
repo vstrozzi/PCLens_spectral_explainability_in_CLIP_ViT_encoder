@@ -102,7 +102,7 @@ def convert_clip_state_dict(old_state: dict) -> dict:
     # Embeddings
     new_state["token_embedding.weight"] = old_state["text_model.embeddings.token_embedding.weight"]
     new_state["positional_embedding"] = old_state["text_model.embeddings.position_embedding.weight"]
-    new_state["text_projection"] = old_state["text_projection.weight"]
+    new_state["text_projection"] = old_state["text_projection.weight"].T
     
     # Transformer encoder layers (12 layers)
     for i in range(12):
