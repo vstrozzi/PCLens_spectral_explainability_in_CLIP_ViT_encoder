@@ -120,7 +120,7 @@ def main(args):
     with open(
         os.path.join(
             args.output_dir,
-            f"{args.dataset}_completeness_{args.text_descriptions}_{args.model}_algo_{args.algorithm}_seed_{args.seed}_max_text{args.max_text}.jsonl",
+            f"{args.dataset}_completeness_{args.text_descriptions}_{args.model}_algo_{args.algorithm}_seed_{args.seed}.jsonl",
         ),
         "w",
     ) as jsonl_file:
