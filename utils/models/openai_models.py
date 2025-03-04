@@ -77,6 +77,8 @@ def load_openai_model(
     # model from OpenAI state dict is in manually cast fp16 mode, must be converted for AMP/fp32/bf16 use
     model = model.to(device)
     # FIXME support pure fp16/bf16 precision modes
+    if precision == "fp16":
+        model.to(dtype=torch.float16)
     if precision != 'fp16':
         model.float()
         if precision == 'bf16':

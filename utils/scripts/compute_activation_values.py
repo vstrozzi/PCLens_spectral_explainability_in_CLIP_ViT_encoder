@@ -48,7 +48,7 @@ def get_args_parser():
 
     parser.add_argument("--tot_samples_per_class", default=None, type=int,
                         help="Total number of samples per class in the dataset")
-    parser.add_argument("--max_nr_samples_before_writing", default=1000, type=int,
+    parser.add_argument("--max_nr_samples_before_writing", default=100, type=int,
                         help="How many samples to keep in RAM before saving them to chunk files")
 
     parser.add_argument("--quantization", help="Quantization size (choose 'fp16' or 'fp32')", default="fp32", type=str)

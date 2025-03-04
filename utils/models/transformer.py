@@ -64,6 +64,7 @@ class LayerNorm(nn.Module):
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
         x = x.to(dtype=torch.float32)
+
         assert self.normalized_shape == x.shape[-len(self.normalized_shape) :]
         dims = [-(i + 1) for i in range(len(self.normalized_shape))] # Normalization dimensions
         mean = self.hook("mean", ret=x.mean(dim=dims, keepdim=True))
@@ -74,7 +75,7 @@ class LayerNorm(nn.Module):
         if self.elementwise_affine:
             x_norm = self.hook("renorm.post", ret=self.weight * x_norm + self.bias)
         self.hook.finalize()
-        return torch.nn.functional.layer_norm(x.to(dtype=orig_type), self.normalized_shape, self.weight, self.bias, self.eps)
+        return torch.nn.functional.layer_norm(x.to(dtype=self.weight.dtype), self.normalized_shape, self.weight, self.bias, self.eps).to(dtype=orig_type)
 
 class QuickGELU(nn.Module):
     # NOTE This is slower than nn.GELU or nn.SiLU and uses more GPU memory
@@ -898,7 +899,6 @@ class VisionTransformer(nn.Module):
             return x[:, 0], x[:, 1:]
 
     def forward(self, x: torch.Tensor, attn_method: Text = "direct"):
-
         # to patches - whether to use dual patchnorm - https://arxiv.org/abs/2302.01327v1
         if self.input_patchnorm:
             # einops - rearrange(x, 'b c (h p1) (w p2) -> b (h w) (c p1 p2)')
@@ -932,6 +932,7 @@ class VisionTransformer(nn.Module):
             ],
             dim=1,
         )  # shape = [*, grid ** 2 + 1, width]
+
         x = self.hook(
             "positional_embedding.post", ret=x + self.positional_embedding.to(x.dtype)
         )
@@ -940,6 +941,7 @@ class VisionTransformer(nn.Module):
         x = self.hook("patch_dropout.post", ret=self.patch_dropout(x))
         x = self.hook("ln_pre_post", ret=self.ln_pre(x))
         # x = x.permute(1, 0, 2)  # NLD -> LND
+
         x = self.transformer(x, attn_method=attn_method)
         # x = x.permute(1, 0, 2)  # LND -> NLD
         if self.attn_pool is not None:
