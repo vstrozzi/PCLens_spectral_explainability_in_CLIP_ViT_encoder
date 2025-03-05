@@ -86,7 +86,7 @@ def main(args):
     prs = hook_prs_logger(model, args.device, spatial=False, vision_projection=args.vision_proj, full_output=args.full_output)
     # Dataset:
     if args.dataset == "imagenet":
-        ds = ImageNet(root=args.data_path, split="val", transform=preprocess)
+        ds = ImageNet(root=args.data_path + "imagenet", split="val", transform=preprocess)
     elif args.dataset == "binary_waterbirds":
         ds = BinaryWaterbirds(root=args.data_path+"waterbird_complete95_forest2water2/", split="test", transform=preprocess)
     elif args.dataset == "CIFAR100":

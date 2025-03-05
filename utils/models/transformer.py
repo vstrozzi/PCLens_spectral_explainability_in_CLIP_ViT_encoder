@@ -75,7 +75,7 @@ class LayerNorm(nn.Module):
         if self.elementwise_affine:
             x_norm = self.hook("renorm.post", ret=self.weight * x_norm + self.bias)
         self.hook.finalize()
-        return torch.nn.functional.layer_norm(x.to(dtype=self.weight.dtype), self.normalized_shape, self.weight, self.bias, self.eps).to(dtype=orig_type)
+        return x_norm # torch.nn.functional.layer_norm(x.to(dtype=self.weight.dtype), self.normalized_shape, self.weight, self.bias, self.eps).to(dtype=orig_type)
 
 class QuickGELU(nn.Module):
     # NOTE This is slower than nn.GELU or nn.SiLU and uses more GPU memory
@@ -665,7 +665,7 @@ class MultiheadAttention(nn.Module):
         x = self.hook("out.post_bias", ret=x + self.out_proj.bias)
         return x
 
-    def forward(self, x, attn_mask=None, method: Text = "direct"):
+    def forward(self, x, attn_mask=None, method: Text = "ov_circuit"):
         if method == "direct":
             x = self.forward_direct(x, attn_mask=attn_mask)
         elif method == "qkv":
