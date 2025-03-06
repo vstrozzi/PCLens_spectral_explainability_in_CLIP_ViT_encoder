@@ -75,7 +75,7 @@ class LayerNorm(nn.Module):
         if self.elementwise_affine:
             x_norm = self.hook("renorm.post", ret=self.weight * x_norm + self.bias)
         self.hook.finalize()
-        return x_norm # torch.nn.functional.layer_norm(x.to(dtype=self.weight.dtype), self.normalized_shape, self.weight, self.bias, self.eps).to(dtype=orig_type)
+        return x_norm.to(dtype=orig_type) # torch.nn.functional.layer_norm(x.to(dtype=self.weight.dtype), self.normalized_shape, self.weight, self.bias, self.eps).to(dtype=orig_type)
 
 class QuickGELU(nn.Module):
     # NOTE This is slower than nn.GELU or nn.SiLU and uses more GPU memory

@@ -8,7 +8,7 @@ import os
 import glob
 import argparse
 from pathlib import Path
-
+import re
 import tqdm
 from utils.models.factory import create_model_and_transforms
 from utils.datasets.binary_waterbirds import BinaryWaterbirds
@@ -230,8 +230,14 @@ def main(args):
     print("\nConcatenating chunk files into final .npy arrays...")
 
     # Helper to load all chunk files of a certain type
+    def natural_sort_key(s):
+    # Split the string into a list of numeric and non-numeric parts.
+        return [int(text) if text.isdigit() else text.lower() for text in re.split('(\d+)', s)]
+
     def load_all_chunks(template):
-        chunk_files = sorted(glob.glob(template.format(idx='*')))  # find chunks
+        # Use the custom key for natural sorting.
+        chunk_files = sorted(glob.glob(template.format(idx='*')), key=natural_sort_key)
+        print(chunk_files)
         arrays = []
         for cf in chunk_files:
             arr = np.load(cf, allow_pickle=False)
