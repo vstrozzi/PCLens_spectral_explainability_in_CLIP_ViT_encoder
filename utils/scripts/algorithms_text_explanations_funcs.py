@@ -998,6 +998,32 @@ def create_dbs(scores_array_images, scores_array_texts, nr_top_imgs=20, nr_worst
 
     return dbs
 
+def visualize_dbs_no_data(dbs, ds_vis, texts_str, classes):
+    for db, db_text, display_text, length in dbs:
+        images, labels, scores, scores_vis = [], [], [], []
+
+        # Collect image samples, their class labels, and similarity scores
+        for score, score_vis, image_index in db:
+            images.append(ds_vis[image_index][0])  # Image data
+            labels.append(classes[ds_vis[image_index][1]])  # Class label
+            scores.append(score)
+            scores_vis.append(score_vis)  # Cosine similarity score
+
+        # Print the header describing the current subset
+        print(display_text)
+
+        # Prepare and display the corresponding texts with their scores
+        output_rows = []
+
+        if db_text is not None:
+            for score, score_vis, text_index in db_text:
+                output_rows.append([texts_str[text_index], score, score_vis])
+            output_df = pd.DataFrame(output_rows, columns=["Text", "Cosine Similarity", "Correlation"])
+            print(tabulate(output_df, headers='keys', tablefmt='psql'))
+
+        # Display the images in a grid layout
+        rows, cols = (length // 4, 4)  # Grid layout: 4 columns, rows derived from the number of images
+        image_grid(images, rows, cols, labels=labels, scores=scores, scores_vis=scores_vis)
 
 def visualize_dbs(data, dbs, ds_vis, texts_str, classes, text_query= None):
     """
@@ -1029,31 +1055,7 @@ def visualize_dbs(data, dbs, ds_vis, texts_str, classes, text_query= None):
         print_data(data, is_corr_present=False)
 
 
-    for db, db_text, display_text, length in dbs:
-        images, labels, scores, scores_vis = [], [], [], []
-
-        # Collect image samples, their class labels, and similarity scores
-        for score, score_vis, image_index in db:
-            images.append(ds_vis[image_index][0])  # Image data
-            labels.append(classes[ds_vis[image_index][1]])  # Class label
-            scores.append(score)
-            scores_vis.append(score_vis)  # Cosine similarity score
-
-        # Print the header describing the current subset
-        print(display_text)
-
-        # Prepare and display the corresponding texts with their scores
-        output_rows = []
-
-        if db_text is not None:
-            for score, score_vis, text_index in db_text:
-                output_rows.append([texts_str[text_index], score, score_vis])
-            output_df = pd.DataFrame(output_rows, columns=["Text", "Cosine Similarity", "Correlation"])
-            print(tabulate(output_df, headers='keys', tablefmt='psql'))
-
-        # Display the images in a grid layout
-        rows, cols = (length // 4, 4)  # Grid layout: 4 columns, rows derived from the number of images
-        image_grid(images, rows, cols, labels=labels, scores=scores, scores_vis=scores_vis)
+    visualize_dbs_no_data(dbs, ds_vis, texts_str, classes)
 
 def visualize_principal_component(
     layer, head, princ_comp, nr_top_imgs, nr_worst_imgs, nr_cont_imgs,
