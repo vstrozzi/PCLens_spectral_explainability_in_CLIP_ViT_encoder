@@ -1,4 +1,5 @@
 import torch 
+import torch.nn as nn
 
 # --- Define the Inversion Network ---
 # A small two-layer network with GELU activation that maps from 768-dim to 1024-dim.
