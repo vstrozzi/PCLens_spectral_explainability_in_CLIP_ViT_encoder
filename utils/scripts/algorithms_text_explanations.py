@@ -35,7 +35,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     mean_values_att = np.mean(data, axis=0)
     mean_values_text = np.mean(text_features, axis=0)
     data = torch.from_numpy(data - mean_values_att).float().to(device)
-    text_features = torch.from_numpy(text_features - mean_values_text).float().to(device)
+    text_features = torch.from_numpy(text_features).float().to(device)
    
     # Perform SVD of data matrix
     u, s, vh = torch.linalg.svd(data, full_matrices=False)
@@ -58,7 +58,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     data = u @ torch.diag_embed(s)
     # Get the projection of text embeddings into head activations matrix space
     text_features_norm = (text_features.norm(dim=-1, keepdim=True))   
-    text_features = text_features @ vh.T
+    text_features = text_features / text_features_norm @ vh.T
     
     # Return the closest text_features in eigen space of data matrix of top iters princ_comp
 

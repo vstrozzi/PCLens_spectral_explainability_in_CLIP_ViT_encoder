@@ -1134,20 +1134,22 @@ def visualize_principal_component(
     mean_final_images = torch.mean(final_embeddings_images,  axis=0)
     mean_final_texts = torch.mean(final_embeddings_texts, axis=0)
 
-    images_centered = final_embeddings_images - mean_final_images
-    texts_centered = final_embeddings_texts - mean_final_texts
+    images_centered = final_embeddings_images# - mean_final_images
+    texts_centered = final_embeddings_texts# - mean_final_texts
 
     # Normalize embeddings to unit norm
 
     # Compute cosine similarity scores with the specified principal component
     vh = torch.tensor(data[0]["vh"])
+    images_centered /= images_centered.norm(dim=-1, keepdim=True)
+
     scores_array_images["score_vis"] = ((images_centered @ vh.T)[:, princ_comp]).numpy()
-    # images_centered /= images_centered.norm(dim=-1, keepdim=True)
     scores_array_images["score"] = ((images_centered @ vh.T)[:, princ_comp]).numpy()
     scores_array_images["img_index"] = indexes_images
 
+    texts_centered /= texts_centered.norm(dim=-1, keepdim=True)
+
     scores_array_texts["score_vis"] = ((texts_centered @ vh.T)[:, princ_comp]).numpy()
-    # texts_centered /= texts_centered.norm(dim=-1, keepdim=True)
     scores_array_texts["score"] = ((texts_centered @ vh.T)[:, princ_comp]).numpy()
     scores_array_texts["txt_index"] = indexes_texts
 
