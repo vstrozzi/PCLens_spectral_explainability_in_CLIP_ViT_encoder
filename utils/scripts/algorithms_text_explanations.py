@@ -2,9 +2,6 @@
 import numpy as np
 import torch
 
-torch.manual_seed(420)
-np.random.seed(420)
-
 
 @torch.no_grad()
 def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp, device, iters=None):
@@ -60,8 +57,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     text_features_norm = (text_features.norm(dim=-1, keepdim=True))   
     text_features = text_features / text_features_norm @ vh.T
     
-    # Return the closest text_features in eigen space of data matrix of top iters princ_comp
-
+    # Return the closest text_features in singular space of data matrix of top iters princ_comp
     simil_matrix = text_features.T  # Get the strongest contribution of each text feature to the princ_comps
     indexes_max = torch.squeeze(torch.argsort(simil_matrix, dim=-1, descending=True))[:rank, :text_per_princ_comp]
     indexes_min = torch.squeeze(torch.argsort(simil_matrix, dim=-1))[:rank, :text_per_princ_comp]

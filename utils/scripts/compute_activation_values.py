@@ -16,6 +16,12 @@ from utils.datasets.dataset_helpers import dataset_to_dataloader
 from utils.models.prs_hook import hook_prs_logger
 from torchvision.datasets import CIFAR100, CIFAR10, ImageNet, ImageFolder
 
+def parse_int_or_none(value):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -43,10 +49,10 @@ def get_args_parser():
     parser.add_argument("--device", default="cuda:0", help="device to use for testing")
     parser.add_argument("--cache_dir", default=None, type=str,
                         help="cache directory for models weight")
-    parser.add_argument("--samples_per_class", default=None, type=int,
+    parser.add_argument("--samples_per_class", default=None, type=parse_int_or_none,
                         help="number of samples per class")
 
-    parser.add_argument("--tot_samples_per_class", default=None, type=int,
+    parser.add_argument("--tot_samples_per_class", default=None, type=parse_int_or_none,
                         help="Total number of samples per class in the dataset")
     parser.add_argument("--max_nr_samples_before_writing", default=20, type=int,
                         help="How many samples to keep in RAM before saving them to chunk files")
