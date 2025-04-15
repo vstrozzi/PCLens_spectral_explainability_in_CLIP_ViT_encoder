@@ -102,6 +102,86 @@ def get_data_component(data, layer, head, princ_comp):
             return [entry]
 
 
+def plot_pc_sv_across_heads_and_layers(data, base_layer):
+    """
+    Plot the cumulative singular values (using cumulative sum of 'strength_rel') for multiple layers 
+    (the base layer and the three previous layers). For each layer, we aggregate over all heads in the 
+    data, compute the mean cumulative singular value at each principal component index, and shade the region 
+    within 1 standard deviation above and below the mean. The legend for each layer includes the percentage 
+    of variance explained by the first PC. The shadow areas are made more distinct by increasing the 
+    opacity and drawing boundary lines.
+
+    Args:
+        data (list): A list of dictionaries containing the principal component records.
+        base_layer (int): The highest layer (the “value layer”) from which to start plotting. 
+                          The plot will include base_layer, base_layer-1, base_layer-2, and base_layer-3.
+
+    Returns:
+        None
+    """
+    layers = [base_layer, base_layer - 1, base_layer - 2, base_layer - 3]
+
+    plt.figure(figsize=(10, 6))
+    
+    # Loop through each layer and aggregate across heads.
+    for l in layers:
+        # Determine which heads exist for the given layer
+        heads = sorted(set(entry["head"] for entry in data if entry["layer"] == l))
+        
+        # Lists to hold the cumulative singular value arrays and PC0 percentages for each head
+        cum_svs_list = []
+        pc0_vals = []  # This will store the first singular value for each head
+        
+        for head in heads:
+            svs = get_data_head_svs(data, l, head)
+            if not svs:
+                continue
+            
+            # Collect the first singular value (assumed to represent PC0's variance explained)
+            pc0_vals.append(svs[0])
+            # Compute cumulative singular values
+            cum_svs = np.cumsum(svs)
+            cum_svs_list.append(cum_svs)
+        
+        # Skip the layer if no valid heads are found.
+        if len(cum_svs_list) == 0:
+            continue
+
+        # Ensure all arrays have the same length (truncate to the smallest length)
+        min_length = min(len(arr) for arr in cum_svs_list)
+        cum_svs_list = [arr[:min_length] for arr in cum_svs_list]
+        cum_svs_array = np.array(cum_svs_list)  # shape: (num_heads, num_components)
+        
+        # Compute the mean and standard deviation across heads at each principal component index.
+        mean_sv = np.mean(cum_svs_array, axis=0)
+        std_sv = np.std(cum_svs_array, axis=0)
+
+        # X axis will be the principal component index.
+        x = np.arange(1, min_length + 1)
+        
+        # Calculate the average percentage of variance explained by the first PC (PC0)
+        avg_pc0 = np.mean(pc0_vals)
+        # Format the legend label as "Layer {l} (PC0: 9%)" rounded to no decimal places.
+        label_str = f'Layer {l} (PC0: {avg_pc0:.0f}%)'
+        
+        # Plot the mean cumulative singular values with the custom legend label.
+        line, = plt.plot(x, mean_sv, label=label_str)
+        
+        # Increase the opacity of the filled region (e.g., alpha=0.4)
+        plt.fill_between(x, mean_sv - std_sv, mean_sv + std_sv, color=line.get_color(), alpha=0.1)
+        
+        # Add boundary lines to the fill for clarity
+        plt.plot(x, mean_sv - std_sv, linestyle='--', color=line.get_color(), linewidth=1, alpha=0.15)
+        plt.plot(x, mean_sv + std_sv, linestyle='--', color=line.get_color(), linewidth=1, alpha=0.15)
+        
+    plt.xlabel('Principal Component Index')
+    plt.ylabel('Cumulative Variance')
+    plt.title('Mean Cumulative Variance (PCs) Across Heads of Last Four Layers with ±1 Std')
+    plt.legend(title="Layer")
+    plt.grid(True)
+    plt.show()
+
+    
 def print_data_text_span(data, top_k=None):
     """
     Print the collected data in a formatted table.
@@ -865,6 +945,11 @@ def image_grid(images, rows, cols, labels=None, scores=None, scores_vis=None, fi
     Returns:
         - None
     """
+
+    #TODO: reedit out
+    labels = False
+    scores = False
+    scores_vis = False
     if figsize is None:
         figsize = (cols * 2, rows * 2)
     

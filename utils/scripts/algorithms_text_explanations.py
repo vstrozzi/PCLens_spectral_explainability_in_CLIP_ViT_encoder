@@ -63,6 +63,7 @@ def svd_data_approx(data, text_features, texts, layer, head, text_per_princ_comp
     indexes_min = torch.squeeze(torch.argsort(simil_matrix, dim=-1))[:rank, :text_per_princ_comp]
 
     # Total strength princ_comps
+    s = s**2
     tot_str = torch.sum(s)
 
     # Reconstruct
