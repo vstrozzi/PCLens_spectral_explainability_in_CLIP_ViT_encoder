@@ -1,6 +1,4 @@
 # PCLens: Spectral Explainability and Concept-Level Interventions in CLIP ViT MSA
-Pythorch implementation, adapted and extended from https://github.com/yossigandelsman/clip_text_span.
-
 
 ![Teaser](images/teaser.png)
 
