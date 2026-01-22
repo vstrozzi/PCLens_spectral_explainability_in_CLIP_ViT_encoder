@@ -2,10 +2,80 @@
 
 ![Teaser](images/teaser.png)
 
+## Overview
+
+This repository contains the implementation of **PCLens**, a mechanistic and spectral framework for interpreting and intervening in the latent space of the CLIP Vision Transformer (ViT).  
+The project introduces a principled decomposition of multi-head self-attention (MSA) activations into principal components, enabling fine-grained semantic analysis, automated concept localization, and targeted concept-level interventions.
+
+PCLens extends prior text-based explainability approaches by integrating both textual and visual semantics, revealing the internal structure of polysemantic attention heads and enabling direct manipulation of semantic directions in the residual stream.
+
+By Virgilio Strozzi at ETH (Medical Data Science Lab, 2025).
+
+## Abstract
+
+Leveraging the shared image–text representation space, recent work proposes to interpret the role of multi-head self-attention (MSA) in the CLIP vision encoder by reconstructing the activation output of individual heads using text embeddings. However, this approach fails to capture the semantic structure of polysemantic heads, where no single dominant concept emerges.
+
+We introduce **PCLens**, a mechanistic and spectral framework that decomposes the activation space of each MSA head into principal components (PCs), each bidirectionally interpreted with both text and image semantics. This method reveals highly specialized, semantically meaningful directions distributed across the ViT residual stream, encoding consistent semantic meaning in both MSA heads and the final CLIP embedding space.
+
+We further propose **QuerySystem**, which automatically identifies PCs encoding a given visual–text concept across different heads, and **PCSelection**, which enables targeted manipulation of PCs to amplify or remove concepts without fine-tuning. Together, these tools uncover the latent structure of CLIP representations and support automatic concept-level interventions, such as mitigating spurious correlations.
+
+Finally, we investigate the transferability of these insights to Large Vision–Language Models (LVLMs) using frozen CLIP encoders and show that the residual stream dynamics differ significantly between [CLS] tokens and patch tokens, suggesting new directions for multimodal interpretability research.
+
+## Results and Key Findings
+
+### Explainability and Latent Space Analysis
+- PCLens provides **finer-grained interpretability** of CLIP ViT attention heads compared to text-only methods.
+- Polysemantic heads are decomposed into multiple semantically coherent principal components.
+- Principal components show **semantic alignment** between MSA head activations and the final CLIP embedding space.
+
+### Automated Concept Localization
+- QuerySystem identifies concept-related PCs across multiple heads and layers.
+- Concepts are shown to be **distributed and redundant** across the ViT architecture.
+- Only a small subset of PCs is often sufficient to represent a concept.
+
+### Concept-Level Interventions
+- PCSelection enables targeted removal or amplification of concepts in the residual stream.
+- Applications include:
+  - Removal of spurious correlations in zero-shot classification.
+  - Concept enhancement and suppression without model fine-tuning.
+  - Qualitative manipulation of semantic content in CLIP embeddings.
+
+### Transfer to LVLMs (LLaVA)
+- Interpretability insights from CLIP do not directly transfer to LVLM image tokens.
+- MLP contributions dominate patch-token representations in LLaVA, unlike the [CLS]-token behavior in CLIP.
+- This suggests that ViT encoders play different functional roles in CLIP and LVLM pipelines.
+
+## Experimental Setup and Evaluation
+
+### Models
+Experiments are conducted on multiple CLIP ViT variants:
+- ViT-B-16
+- ViT-L-14
+- ViT-H-14
+
+### Datasets
+- ImageNet (classification and segmentation)
+- Waterbirds (spurious correlation analysis)
+- Custom text datasets for concept probing
+
+### Tasks
+- Zero-shot classification reconstruction
+- Semantic characterization of attention heads
+- Concept localization across heads and layers
+- Targeted concept intervention in the residual stream
+- Transfer analysis to LLaVA
+
+### Metrics
+- Cosine similarity in CLIP embedding space
+- Zero-shot accuracy recovery
+- Qualitative semantic coherence of PCs
+- Intervention effectiveness (spurious correlation mitigation)
+
 ## General
 Information on how to run and play with our approach.
+
 ### Setup dependencies
-Use the provided [`environment.yml`](environment.yml) file to create a Conda environment with all the dependenctios:
+Use the provided [`environment.yml`](environment.yml) file to create a Conda environment with all the dependencies:
 
 ```bash
 conda env create -f environment.yml
