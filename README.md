@@ -1,6 +1,6 @@
 # PCLens: Spectral Explainability and Concept-Level Interventions in CLIP ViT MSA
 
-![Teaser](images/teaser.png)
+![Teaser](images/PC_Lens_Schema.png)
 
 ## Overview
 
@@ -22,6 +22,8 @@ We further propose **QuerySystem**, which automatically identifies PCs encoding 
 Finally, we investigate the transferability of these insights to Large Vision–Language Models (LVLMs) using frozen CLIP encoders and show that the residual stream dynamics differ significantly between [CLS] tokens and patch tokens, suggesting new directions for multimodal interpretability research.
 
 ## Results and Key Findings
+
+![Teaser](images/ViT_Head.png)
 
 ### Explainability and Latent Space Analysis
 - PCLens provides **finer-grained interpretability** of CLIP ViT attention heads compared to text-only methods.
