@@ -9,7 +9,7 @@ The project introduces a principled decomposition of multi-head self-attention (
 
 PCLens extends prior text-based explainability approaches by integrating both textual and visual semantics, revealing the internal structure of polysemantic attention heads and enabling direct manipulation of semantic directions in the residual stream.
 
-By Virgilio Strozzi at ETH (Medical Data Science Lab, 2025).
+By Virgilio Strozzi at ETH (Medical Data Science Lab, 2025. See full report in the repository.
 
 ## Abstract
 
